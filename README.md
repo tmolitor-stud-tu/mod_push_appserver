@@ -3,6 +3,9 @@ Simple and extendable appserver for XMPP pushes (aka. XEP-0357)
 
 A better readme is coming soon.
 
+## TODO
+Periodically (about once a day) query apple's feedback service to react to failed pushes (remove push settings for given device).
+
 ## Requirements
 
 - Prosody 0.9 or later
@@ -17,10 +20,8 @@ Currently only push to apples APNS is implemented, but other push services like 
 
 `mod_push_appserver_apns` needs APNS client certificate and key files in the module directory under the name `push.pem` (cert in pem fomat) and `push.key` (key in pem format, no password!)
 
-Currently the APNS module should only used for VOIP pushes as the pushes have a hardcoded dummy payload and are `HIGH` priority pushes.
-The TTL of those pushes is set to 24 hours.
-
-If you want to change this to your needs, just patch the line calling `create_frame()` accordingly.
+For VOIP pushes the priority should be set to "high", the alert text can be ignored in this case if you only want to wakeup your device.
+For normal pushes priorities "high" and "silent" are supported. The configured alert text (`push_appserver_apns_push_alert`) is ignored for silent pushes.
 
 ### Interaction between mod_push_appserver and mod_push_appserver_apns
 mod_push_appserver triggers the event `incoming-push-to-<push type>` (currently only the type `apns` is supported)
@@ -60,6 +61,9 @@ The event data includes the following keys:
 ### Configuration options (mod_push_appserver_apns)
 `push_appserver_apns_capath`: string, path to CA certificates directory, default: `/etc/ssl/certs` (debian and ubuntu use this path for system CA store)
 `push_appserver_apns_sandbox`: boolean, use apns sandbox api endpoint if `true`, production endpoint otherwise, default: `true`
+`push_appserver_apns_push_alert`: string, alert text for push message, default: "dummy"
+`push_appserver_apns_push_ttl`: number, ttl for push notification in seconds, default: 24 hours
+`push_appserver_apns_push_priority`: string, value "high" for high priority pushes or "silent" for silent pushes, default: "high"
 
 ### Example of internal data
 ``

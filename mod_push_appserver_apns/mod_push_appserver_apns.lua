@@ -18,7 +18,10 @@ module:depends("push_appserver");
 
 -- configuration
 local capath = module:get_option_string("push_appserver_apns_capath", "/etc/ssl/certs");
-local sandbox = module:get_option_boolean("push_appserver_apns_sandbox", true);
+local push_alert = module:get_option_string("push_appserver_apns_push_alert", "dummy");			--dummy alert text
+local push_ttl = module:get_option_number("push_appserver_apns_push_ttl", 3600*24);				--24 hours default
+local push_priority = module:get_option_number("push_appserver_apns_push_priority", "HIGH");	--high priority pushes
+local sandbox = module:get_option_boolean("push_appserver_apns_sandbox", true);					--default: use APNS sandbox
 local push_host = sandbox and "gateway.sandbox.push.apple.com" or "gateway.push.apple.com";
 local feedback_host = sandbox and "feedback.sandbox.push.apple.com" or "feedback.push.apple.com";
 
@@ -155,8 +158,13 @@ local function apns_handler(event)
 	local settings = event.settings;
 	
 	-- prepare data to send (using latest binary format, not legacy binary format or the new http/2 format)
-	local payload = '{"aps":{"alert":"dummy","sound":"default"}}';		-- dummy data
-	local frame, id = create_frame(settings["token"], payload, 3600*24, "high");	-- 24 hours ttl, high priority (voip push is always high priority)
+	local payload;
+	if push_priority == "high" then
+		payload = '{"aps":{"alert":"'..push_alert..'","sound":"default"}}';
+	else
+		payload = '{"aps":{"content-available":1}}';
+	end
+	local frame, id = create_frame(settings["token"], payload, push_ttl, push_priority);
 	
 	if init_connection() then return "Error connecting to APNS"; end	-- error occured
 	if not conn then return "Error connecting to APNS"; end				-- error occured
