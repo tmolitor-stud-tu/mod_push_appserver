@@ -60,3 +60,16 @@ The event data includes the following keys:
 ### Configuration options (mod_push_appserver_apns)
 `push_appserver_apns_capath`: string, path to CA certificates directory, default: `/etc/ssl/certs` (debian and ubuntu use this path for system CA store)
 `push_appserver_apns_sandbox`: boolean, use apns sandbox api endpoint if `true`, production endpoint otherwise, default: `true`
+
+### Example of internal data
+``
+{
+  type = "apns",
+  token = "DEADBEEFABCDEF0123456DEADBEEF112",
+  last_push_error = "2017-03-18T04:07:44Z",
+  last_successful_push = "2017-03-18T03:54:24Z",
+  renewed = "2017-03-18T02:54:51Z",
+  node = "E0FF1D8C-EB96-4E10-A912-F68B03FD8D3E",
+  secret = "384e51b4b2d5e4758e5dc342b22dea9217212f2c4886e2a3dcf16f3eb0eb3807"
+}
+``
