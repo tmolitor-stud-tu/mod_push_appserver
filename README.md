@@ -3,6 +3,13 @@ Simple and extendable appserver for XMPP pushes (aka. XEP-0357)
 
 A better readme is coming soon.
 
+## Requirements
+
+- Prosody 0.9 or later
+- Lua 5.1 (5.2 should also work, but is untested)
+- Installed penlight lua library (debian package: `lua-penlight`)
+- Installed luasec lua library version 0.5 (debian package: `lua-sec`), higher versions are untested
+
 ## Notes
 The appserver is implemented as a module for the prosody XMPP server (usable on prosody 0.9 or later) and written in lua (version 5.1).
 
