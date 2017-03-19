@@ -66,7 +66,7 @@ The event data includes the following keys:
 `push_appserver_apns_push_priority`: string, value "high" for high priority pushes or "silent" for silent pushes, default: "high"
 
 ### Example of internal data
-``
+```lua
 {
   type = "apns",
   token = "DEADBEEFABCDEF0123456DEADBEEF112",
@@ -77,4 +77,4 @@ The event data includes the following keys:
   node = "E0FF1D8C-EB96-4E10-A912-F68B03FD8D3E",
   secret = "384e51b4b2d5e4758e5dc342b22dea9217212f2c4886e2a3dcf16f3eb0eb3807"
 }
-``
+```
