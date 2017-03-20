@@ -4,7 +4,7 @@
 --
 -- This file is MIT/X11 licensed.
 --
--- Implementation of a simple push app server used by Monal
+-- Implementation of a simple push app server
 --
 
 -- imports
@@ -40,6 +40,7 @@ local xmlns_push = "urn:xmpp:push:0";
 local push_store = (function()
 	local store = module:open_store();
 	local cache = {};
+	local token2node_cache = {};
 	local api = {};
 	function api:get(node)
 		if not cache[node] then
@@ -55,6 +56,8 @@ local push_store = (function()
 		return cache[node], true;
 	end
 	function api:set(node, data)
+		local settings = api:get(node);		-- load node's data
+		if settings.token then token2node_cache[settings.token] = nil; end		-- invalidate token2node cache
 		cache[node] = data;
 		local ok, err = store:set(node, cache[node]);
 		if not ok then
@@ -66,9 +69,23 @@ local push_store = (function()
 	function api:list()
 		return store:users();
 	end
+	function api:token2node(token)
+		if token2node_cache[token] then return token2node_cache[token].node; end
+		for node in store:users() do
+			local err;
+			-- read data directly, we don't want to cache full copies of stale entries as api:get() would do
+			settings, err = store:get(node);
+			if not settings and err then
+				module:log("error", "Error reading push notification storage for node '%s': %s", node, tostring(err));
+				settings = {};
+			end
+			if settings.token and settings.node then token2node_cache[settings.token] = settings.node; end
+		end
+		if token2node_cache[token] then return token2node_cache[token].node; end
+		return nil;
+	end
 	return api;
 end)();
-
 
 -- hooks
 local function sendError(origin, stanza)
@@ -116,6 +133,38 @@ module:hook("iq/host", function (event)
 	end
 	push_store:set(node, settings);
 	return true;
+end);
+
+module:hook("unregister-push-node", function(event)
+	local node, type = event.node, event.type;
+	local settings = push_store:get(node);
+	if settings["type"] == event.type then
+		module:log("info", "Unregistered push device, returning: 'OK', '%s', '%s'", tostring(event.node), tostring(settings["secret"]));
+		module:log("debug", "settings: %s", pretty.write(settings));
+		module:log("debug", "event: %s", pretty.write(event));
+		push_store:set(event.node, nil);
+		return "OK\n"..event.node.."\n"..settings["secret"];
+	end
+	
+	module:log("info", "Node not found in unregister, returning: 'ERROR', 'Node not found!'", tostring(event.node));
+	return "ERROR\nNode not found!";
+end);
+
+module:hook("unregister-push-token", function(event)
+	local token, type, timestamp = event.token, event.type, event.timestamp or os.time();
+	local node = push_store:token2node(token);
+	if node then
+		local settings = push_store:get(node);
+		local register_timestamp = datetime.parse(settings["renewed"] or settings["registered"]);
+		if timestamp > register_timestamp then
+			return module:trigger("unregister-push-node", {node = node, type = type});
+		else
+			module:log("warn", "Unregister via token failed: node '%s' was re-registered after delete timestamp %s", node, datetime.datetime(timestamp));
+		end
+	else
+		module:log("warn", "Unregister via token failed: could not find '%s' node for push token '%s'", type, token);
+	end
+	return false;
 end);
 
 -- http service
@@ -166,17 +215,40 @@ local function serve_unregister_v1(event, path)
 		return 400;
 	end
 	
-	local settings = push_store:get(arguments["node"]);
-	if settings["type"] == arguments["type"] then
-		module:log("info", "Unregistered push device, returning: 'OK', '%s', '%s'", tostring(arguments["node"]), tostring(settings["secret"]));
-		module:log("debug", "settings: %s", pretty.write(settings));
-		module:log("debug", "arguments: %s", pretty.write(arguments));
-		push_store:set(arguments["node"], nil);
-		return "OK\n"..arguments["node"].."\n"..settings["secret"];
+	return module:trigger("unregister-push-node", {arguments = arguments});
+end
+
+local function serve_push_v1(event, path)
+	if #event.request.body > body_size_limit then
+		module:log("warn", "Post body too large: %d bytes", #event.request.body);
+		return 400;
 	end
 	
-	module:log("info", "Node not found in unregister, returning: 'ERROR', 'Node not found!'", tostring(arguments["node"]));
-	return "ERROR\nNode not found!";
+	local arguments = http.formdecode(event.request.body);
+	if not arguments["node"] or not arguments["secret"] then
+		module:log("warn", "Post data contains unexpected contents");
+		return 400;
+	end
+	
+	local node, secret = arguments["node"], arguments["secret"];
+	local settings = push_store:get(node);
+	if not settings or not #settings or secret ~= settings["secret"] then
+		module:log("info", "Node or secret not found in push, returning: 'ERROR', 'Node or secret not found!'", tostring(node));
+		return "ERROR\nNode or secret not found!";
+	end
+	
+	local response = "ERROR\nInternal server error!";
+	module:log("info", "Firing event '%s' (node = '%s', secret = '%s')", "incoming-push-to-"..settings["type"], settings["node"], settings["secret"]);
+	local success = module:fire_event("incoming-push-to-"..settings["type"], {origin = origin, settings = settings, stanza = nil});
+	if success or success == nil then
+		module:log("error", "Push handler for type '%s' not executed successfully%s", settings["type"], type(success) == "string" and ": "..success or "");
+		settings["last_push_error"] = datetime.datetime();
+	else
+		settings["last_successful_push"] = datetime.datetime();
+		response = "OK\n"..node;
+	end
+	push_store:set(node, settings);
+	return response;
 end
 
 local function serve_data_v1(event, path)
@@ -189,8 +261,9 @@ local function serve_data_v1(event, path)
 		end
 		return output.."</body></html>";
 	end
+	path = path:match("^([^/]+).*$");
 	local settings = push_store:get(path);
-	return pretty.write(settings).."</body></html>";
+	return output..'<a href="/v1/settings">Back to List</a><br>\n<pre>'..pretty.write(settings).."</pre></body></html>";
 end
 
 local function serve_hello(event, path)
@@ -204,6 +277,7 @@ module:provides("http", {
 		["GET /"] = serve_hello;
 		["POST /v1/register"] = serve_register_v1;
 		["POST /v1/unregister"] = serve_unregister_v1;
+		["POST /v1/push"] = serve_push_v1;
 		["GET /v1/settings"] = serve_data_v1;
 		["GET /v1/settings/*"] = serve_data_v1;
 	};

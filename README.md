@@ -24,11 +24,17 @@ For VOIP pushes the priority should be set to "high", the alert text can be igno
 For normal pushes priorities "high" and "silent" are supported. The configured alert text (`push_appserver_apns_push_alert`) is ignored for silent pushes.
 
 ### Interaction between mod_push_appserver and mod_push_appserver_apns
-mod_push_appserver triggers the event `incoming-push-to-<push type>` (currently only the type `apns` is supported)
+mod_push_appserver triggers the event `incoming-push-to-<push type>` (currently only the type `apns` is supported).
 The event data includes the following keys:
 - origin: prosody session the stanza came from (typically an s2s session)
 - settings: the registered push settings available at `/push_appserver/v1/settings/<device uuid>` http endpoint
 - stanza: the incoming push stanza (see XEP-0357 for more info)
+
+mod_push_appserver_apns triggers the event `unregister-push-token`.
+The event data includes the following keys:
+- token: the push token to invalidate (note: this is not the secret obtained by registering the device, but the raw token obtained from APNS, GCM etc.)
+- type: "apns" etc.
+- timestamp: the timestamp of the delete request. mod_push_appserver won't unregister the token if it was re-registered after this timestamp
 
 ### http API endpoints
 - POST to `http://<host>:5280/push_appserver/v1/register` or `https://<host>:5281/push_appserver/v1/register`
@@ -47,6 +53,14 @@ The event data includes the following keys:
     if ok: 2nd line: XEP-0357 push `node`, 3rd line: XEP-0357 push `secret`
     if error: 2nd and subsequent lines: error description
 
+- POST to `http://<host>:5280/push_appserver/v1/push` or `https://<host>:5281/push_appserver/v1/push`
+  POST data: `node=<device uuid>&secret=<secret obtained on register>`
+  function: send push notification to device
+  result: text document separated by `\n`
+  - first line: `OK`, everything else (including `ERROR`) is specified as error condition
+    if ok: 2nd line: XEP-0357 push `node`
+    if error: 2nd and subsequent lines: error description
+
 - GET to `http://<host>:5280/push_appserver/v1/settings` or `https://<host>:5281/push_appserver/v1/settings`
   function: get list of registered device UUIDs
   result: html site listing all registered device UUIDS as links
@@ -62,14 +76,15 @@ The event data includes the following keys:
 `push_appserver_apns_capath`: string, path to CA certificates directory, default: `/etc/ssl/certs` (debian and ubuntu use this path for system CA store)
 `push_appserver_apns_sandbox`: boolean, use apns sandbox api endpoint if `true`, production endpoint otherwise, default: `true`
 `push_appserver_apns_push_alert`: string, alert text for push message, default: "dummy"
-`push_appserver_apns_push_ttl`: number, ttl for push notification in seconds, default: 24 hours
+`push_appserver_apns_push_ttl`: number, ttl for push notification in seconds, default: nil (that means infinite)
 `push_appserver_apns_push_priority`: string, value "high" for high priority pushes or "silent" for silent pushes, default: "high"
+`push_appserver_apns_feedback_request_interval`: number, interval in seconds to query apples feedback service for extinction of invalid tokens, default: 24 hours
 
 ### Example of internal data
 ```lua
 {
   type = "apns",
-  token = "DEADBEEFABCDEF0123456DEADBEEF112",
+  token = "DEADBEEFABCDEF0123456DEADBEEF112DEADBEEFABCDEF0123456DEADBEEF112",
   last_push_error = "2017-03-18T04:07:44Z",
   last_successful_push = "2017-03-18T03:54:24Z",
   registered = "2017-03-17T02:10:21Z",

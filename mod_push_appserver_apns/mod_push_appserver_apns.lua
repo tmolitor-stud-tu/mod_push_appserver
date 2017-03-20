@@ -4,7 +4,7 @@
 --
 -- This file is MIT/X11 licensed.
 --
--- Implementation of a simple push app server used by Monal
+-- Implementation of a simple push app server
 --
 
 -- imports
@@ -12,18 +12,22 @@ local socket = require "socket";
 local ssl = require "ssl";
 local string = require "string";
 local t_remove = table.remove;
+local datetime = require "util.datetime";
 
 -- this is the master module
 module:depends("push_appserver");
 
 -- configuration
-local capath = module:get_option_string("push_appserver_apns_capath", "/etc/ssl/certs");
+local capath = module:get_option_string("push_appserver_apns_capath", "/etc/ssl/certs");		--default: ca path on debian systems
 local push_alert = module:get_option_string("push_appserver_apns_push_alert", "dummy");			--dummy alert text
-local push_ttl = module:get_option_number("push_appserver_apns_push_ttl", 3600*24);				--24 hours default
-local push_priority = module:get_option_number("push_appserver_apns_push_priority", "HIGH");	--high priority pushes
+local push_ttl = module:get_option_number("push_appserver_apns_push_ttl", nil);					--default: no ttl
+local push_priority = module:get_option_string("push_appserver_apns_push_priority", "HIGH");	--high priority pushes
 local sandbox = module:get_option_boolean("push_appserver_apns_sandbox", true);					--default: use APNS sandbox
+local feedback_request_interval = module:get_option_number("push_appserver_apns_feedback_request_interval", 3600*24);	--24 hours
 local push_host = sandbox and "gateway.sandbox.push.apple.com" or "gateway.push.apple.com";
+local push_posrt = 2195;
 local feedback_host = sandbox and "feedback.sandbox.push.apple.com" or "feedback.push.apple.com";
+local feddback_port = 2196;
 
 -- global state
 local conn = nil;
@@ -44,13 +48,22 @@ local function byte2bin(byte)
 	if byte < 0 or byte > 255 then return nil; end
 	return string.char(byte);
 end
+local function bin2byte(bin)
+	return string.byte(bin);
+end
 local function short2bin(short)
 	if short < 0 or short > 2^16 - 1 then return nil; end
 	return hex2bin(string.format('%04X', short));
 end
+local function bin2short(bin)
+	return tonumber(bin2hex(string.sub(bin, 1, 2)), 16);
+end
 local function long2bin(long)
 	if long < 0 or long > 2^32 - 1 then return nil; end
 	return hex2bin(string.format('%04X', long));
+end
+local function bin2long(bin)
+	return tonumber(bin2hex(string.sub(bin, 1, 4)), 16);
 end
 
 -- protocol functions (using latest binary format, not legacy binary format or the new http/2 format)
@@ -113,7 +126,7 @@ local function extract_error(error_frame)
 end
 
 -- network functions
-local function init_connection()
+local function init_connection(conn, host, port)
 	local params = {
 		mode = "client",
 		protocol = "tlsv1_2",
@@ -129,21 +142,21 @@ local function init_connection()
 	if conn and err == "timeout" then module:log("debug", "already connected to apns: %s", tostring(err)); return conn; end		-- already connected
 	
 	-- init connection
-	module:log("debug", "connecting to %s port 2195", tostring(push_host));
+	module:log("debug", "connecting to %s port %d", host, port);
 	conn, err = socket.tcp();
-	if not conn then module:log("error", "Could not create APNS socket: %s", tostring(err)); return true; end
-	success, err = conn:connect(push_host, 2195);
-	if not success then module:log("error", "Could not connect APNS socket: %s", tostring(err)); return true; end
+	if not conn then module:log("error", "Could not create APNS socket: %s", tostring(err)); return nil; end
+	success, err = conn:connect(host, port);
+	if not success then module:log("error", "Could not connect APNS socket: %s", tostring(err)); return nil; end
 	
 	-- init tls and timeouts
 	conn, err = ssl.wrap(conn, params);
-	if not conn then module:log("error", "Could not tls-wrap APNS socket: %s", tostring(err)); return true; end
+	if not conn then module:log("error", "Could not tls-wrap APNS socket: %s", tostring(err)); return nil; end
 	success, err = conn:dohandshake();
-	if not success then module:log("error", "Could not negotiate TLS encryption with APNS: %s", tostring(err)); return true; end
+	if not success then module:log("error", "Could not negotiate TLS encryption with APNS: %s", tostring(err)); return nil; end
 	conn:settimeout(1);
 	
 	module:log("debug", "connection established successfully");
-	return false;
+	return conn;
 end
 local function close_connection(conn)
 	if conn then conn:close(); end
@@ -166,7 +179,7 @@ local function apns_handler(event)
 	end
 	local frame, id = create_frame(settings["token"], payload, push_ttl, push_priority);
 	
-	if init_connection() then return "Error connecting to APNS"; end	-- error occured
+	conn = init_connection(conn, push_host, push_port);
 	if not conn then return "Error connecting to APNS"; end				-- error occured
 	
 	-- send frame
@@ -188,8 +201,50 @@ local function apns_handler(event)
 	return true;
 end
 
+-- timers
+local function query_feedback_service()
+	local conn;
+	module:log("info", "Connecting to APNS feedback service");
+	conn = init_connection(conn, feedback_host, feedback_port);
+	if not conn then	-- error occured
+		module:add_timer(feedback_request_interval, query_feedback_service);
+		return true;
+	end
+	
+	repeat
+		local feedback, err = conn:receive(6);
+		if err == "timeout" then break; end		-- no error happened (no data left)
+		if err then
+			module:log("error", "Could not receive data from APNS feedback socket (receive 1): %s", tostring(err));
+			close_connection(conn);
+			module:add_timer(feedback_request_interval, query_feedback_service);
+			return true;
+		end
+		local timestamp = bin2long(string.sub(feedback, 1, 4));
+		local token_length = bin2short(string.sub(feedback, 5, 6));
+		
+		feedback, err = conn:receive(token_length);
+		if err then		-- timeout is also an error here, since the frame is incomplete in this case
+			module:log("error", "Could not receive data from APNS feedback socket (receive 2): %s", tostring(err));
+			close_connection(conn);
+			module:add_timer(feedback_request_interval, query_feedback_service);
+			return true;
+		end
+		local token = bin2hex(string.sub(feedback, 1, token_length));
+		module:log("info", "Got feedback service entry for token '%s' timestamped with '%s", token, datetime.datetime(timestamp));
+		
+		if not module:trigger("unregister-push-token", {token = token, type = "apns", timestamp = timestamp}) then
+			module:log("warn", "Could not unregister push token");
+		end
+	until false;
+	close_connection(conn);
+	module:add_timer(feedback_request_interval, query_feedback_service);
+	return false;
+end
+
 -- setup
 module:hook("incoming-push-to-apns", apns_handler);
+module:add_timer(feedback_request_interval, query_feedback_service);
 module:log("info", "Appserver APNS module loaded");
 function module.unload()
 	module:unhook("incoming-push-to-apns", apns_handler);
