@@ -25,9 +25,9 @@ local push_priority = module:get_option_string("push_appserver_apns_push_priorit
 local sandbox = module:get_option_boolean("push_appserver_apns_sandbox", true);					--default: use APNS sandbox
 local feedback_request_interval = module:get_option_number("push_appserver_apns_feedback_request_interval", 3600*24);	--24 hours
 local push_host = sandbox and "gateway.sandbox.push.apple.com" or "gateway.push.apple.com";
-local push_posrt = 2195;
+local push_port = 2195;
 local feedback_host = sandbox and "feedback.sandbox.push.apple.com" or "feedback.push.apple.com";
-local feddback_port = 2196;
+local feedback_port = 2196;
 
 -- global state
 local conn = nil;
