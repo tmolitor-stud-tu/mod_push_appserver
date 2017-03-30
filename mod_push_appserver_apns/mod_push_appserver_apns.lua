@@ -18,11 +18,13 @@ local datetime = require "util.datetime";
 module:depends("push_appserver");
 
 -- configuration
-local capath = module:get_option_string("push_appserver_apns_capath", "/etc/ssl/certs");		--default: ca path on debian systems
+local apns_cert = module:get_option_string("push_appserver_apns_cert", nil);					--push certificate (no default)
+local apns_key = module:get_option_string("push_appserver_apns_key", nil);						--push certificate key (no default)
+local capath = module:get_option_string("push_appserver_apns_capath", "/etc/ssl/certs");		--ca path on debian systems
 local push_alert = module:get_option_string("push_appserver_apns_push_alert", "dummy");			--dummy alert text
-local push_ttl = module:get_option_number("push_appserver_apns_push_ttl", nil);					--default: no ttl
-local push_priority = module:get_option_string("push_appserver_apns_push_priority", "HIGH");	--high priority pushes
-local sandbox = module:get_option_boolean("push_appserver_apns_sandbox", true);					--default: use APNS sandbox
+local push_ttl = module:get_option_number("push_appserver_apns_push_ttl", nil);					--no ttl
+local push_priority = module:get_option_string("push_appserver_apns_push_priority", "SILENT");	--silent priority pushes
+local sandbox = module:get_option_boolean("push_appserver_apns_sandbox", true);					--use APNS sandbox
 local feedback_request_interval = module:get_option_number("push_appserver_apns_feedback_request_interval", 3600*24);	--24 hours
 local push_host = sandbox and "gateway.sandbox.push.apple.com" or "gateway.push.apple.com";
 local push_port = 2195;
@@ -31,9 +33,8 @@ local feedback_port = 2196;
 
 -- global state
 local conn = nil;
-local queue = {};
 
--- util functions
+-- utility functions for binary manipulations
 local function hex2bin(str)
 	return (str:gsub('..', function(cc)
 		return string.char(tonumber(cc, 16))
@@ -66,7 +67,7 @@ local function bin2long(bin)
 	return tonumber(bin2hex(string.sub(bin, 1, 4)), 16);
 end
 
--- protocol functions (using latest binary format, not legacy binary format or the new http/2 format)
+-- protocol helpers (using latest binary format, not the legacy binary format or the new http/2 format)
 local function pack_item(itemtype, data)
 	local id = 0;
 	if itemtype == "token" then				-- push token (named deviceid in apple docs)
@@ -95,7 +96,7 @@ local function create_frame(token, payload, ttl, priority)
 				  pack_item("payload",		payload)..
 				  pack_item("identifier",	id)..
 				  (ttl and pack_item("ttl", ttl) or "")..		-- ttl is optional
-				  pack_item("priority",		priority);
+				  pack_item("priority",		priority);			-- priority is optional (default: silent)
 	local command = byte2bin(2);	-- notify via latest binary protocol
 	local frame_length = short2bin(string.len(frame));
 	frame = command..frame_length..frame;
@@ -126,19 +127,20 @@ local function extract_error(error_frame)
 end
 
 -- network functions
-local function init_connection(conn, host, port)
+local function init_connection(conn, host, port, timeout)
+	if not timeout then timeout = 1; end	-- default value
 	local params = {
 		mode = "client",
 		protocol = "tlsv1_2",
 		verify = "none",
 		capath = capath,
-		certificate = module:get_directory().."/push.pem",
-		key = module:get_directory().."/push.key",
+		certificate = apns_cert,
+		key = apns_key,
 		options = "no_compression",
 	}
 	local success, err;
 	
-	if conn then conn:settimeout(0); success, err = conn:receive(0); conn:settimeout(1); end
+	if conn then conn:settimeout(0); success, err = conn:receive(0); conn:settimeout(timeout); end
 	if conn and err == "timeout" then module:log("debug", "already connected to apns: %s", tostring(err)); return conn; end		-- already connected
 	
 	-- init connection
@@ -153,7 +155,7 @@ local function init_connection(conn, host, port)
 	if not conn then module:log("error", "Could not tls-wrap APNS socket: %s", tostring(err)); return nil; end
 	success, err = conn:dohandshake();
 	if not success then module:log("error", "Could not negotiate TLS encryption with APNS: %s", tostring(err)); return nil; end
-	conn:settimeout(1);
+	conn:settimeout(timeout);
 	
 	module:log("debug", "connection established successfully");
 	return conn;
@@ -170,7 +172,7 @@ end
 local function apns_handler(event)
 	local settings = event.settings;
 	
-	-- prepare data to send (using latest binary format, not legacy binary format or the new http/2 format)
+	-- prepare data to send (using latest binary format, not the legacy binary format or the new http/2 format)
 	local payload;
 	if push_priority == "high" then
 		payload = '{"aps":{"alert":"'..push_alert..'","sound":"default"}}';
@@ -205,7 +207,7 @@ end
 local function query_feedback_service()
 	local conn;
 	module:log("info", "Connecting to APNS feedback service");
-	conn = init_connection(conn, feedback_host, feedback_port);
+	conn = init_connection(nil, feedback_host, feedback_port, 8);	-- use 8 second read timeout (default: 1s)
 	if not conn then	-- error occured
 		module:add_timer(feedback_request_interval, query_feedback_service);
 		return true;
@@ -244,8 +246,9 @@ end
 
 -- setup
 module:hook("incoming-push-to-apns", apns_handler);
-module:add_timer(feedback_request_interval, query_feedback_service);
+-- module:add_timer(feedback_request_interval, query_feedback_service);
 module:log("info", "Appserver APNS module loaded");
+query_feedback_service();	-- query feedback service directly after module load and install timer
 function module.unload()
 	module:unhook("incoming-push-to-apns", apns_handler);
 	module:log("info", "Appserver APNS module unloaded");

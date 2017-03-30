@@ -99,8 +99,8 @@ alert text (`push_appserver_apns_push_alert`) is ignored for `silent` pushes.
 - **push\_appserver\_apns\_push\_ttl** *(number)*  
   TTL for push notification in seconds. Default: `nil` (that means infinite).
 - **push\_appserver\_apns\_push\_priority** *(string)*  
-  Value `"high"` for high priority pushes or `"silent"` for silent pushes.
-  Default: `"high"`.
+  Value `"HIGH"` for high priority pushes or `"SILENT"` for silent pushes.
+  Default: `"SILENT"`.
 - **push\_appserver\_apns\_feedback\_request\_interval** *(number)*  
   Interval in seconds to query Apple's feedback service for extinction of
   invalid tokens. Default: 24 hours.
