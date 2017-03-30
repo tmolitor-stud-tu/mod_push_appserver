@@ -324,4 +324,8 @@ module:provides("http", {
 	};
 });
 
+if debugging then
+	module:log("warn", "Debugging is activated, you should turn this off on production servers for security reasons!!!");
+	module:log("warn", "Setting: 'push_appserver_debugging'.");
+end
 module:log("info", "Appserver started at URL: <%s>", module:http_url().."/");
