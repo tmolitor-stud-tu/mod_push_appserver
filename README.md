@@ -21,18 +21,27 @@ separate module.
 
 Just check out the repository somewhere and point prosody at this directory
 using `plugin_paths` in its main config file.  
-For example: `plugin_paths = { "/usr/local/lib/mod_push_appserver" }`.
+For example: `plugin_paths = { "/usr/local/lib/mod\_push\_appserver" }`.
 
-I will eventually add a commented minimal configuration example for prosody, too.
+Then add `mod\_push\_appserver` and the submodule you need (for example
+`mod\_push\_appserver\_apns`) to global `modules_enabled` or to the enabled
+modules of a specific virtual host.
+
+I will eventually add a commented minimal configuration example for prosody
+to this repository, too.
 
 ## Usage notes
 
 For VoIP pushes to APNS, the priority should be set to `high`. The alert text can
 be ignored in this case (if you only want to wakeup your device). For normal push
 notifications, the priorities `high` and `silent` are supported. The configured
-alert text (`push_appserver_apns_push_alert`) is ignored for `silent` pushes.
+alert text (`push\_appserver\_apns\_push\_alert`) is ignored for `silent` pushes.
 
 ### HTTP API endpoints
+
+All `POST` endpoints can be used via `GET` to get back a simple html form which
+allows you to manually test the endpoint behaviour in your browser, if the config
+option `push\_appserver\_debugging` is set to true (an error is returned otherwise).
 
 - POST to `http://<host>:5280/push_appserver/v1/register` or
   `https://<host>:5281/push_appserver/v1/register`  
@@ -99,8 +108,8 @@ alert text (`push_appserver_apns_push_alert`) is ignored for `silent` pushes.
 - **push\_appserver\_apns\_push\_ttl** *(number)*  
   TTL for push notification in seconds. Default: `nil` (that means infinite).
 - **push\_appserver\_apns\_push\_priority** *(string)*  
-  Value `"HIGH"` for high priority pushes or `"SILENT"` for silent pushes.
-  Default: `"SILENT"`.
+  Value `"high"` for high priority pushes or `"silent"` for silent pushes.
+  Default: `"silent"`.
 - **push\_appserver\_apns\_feedback\_request\_interval** *(number)*  
   Interval in seconds to query Apple's feedback service for extinction of
   invalid tokens. Default: 24 hours.
@@ -113,8 +122,11 @@ other. These events are documented here.
 ### Interaction between mod\_push\_appserver and its submodules
 
 mod\_push\_appserver triggers the event `incoming-push-to-<push type>`
-(currently only the type `apns` is supported). The event data includes the
-following keys:
+(currently only the type `apns` is supported).
+The event handler has to return `true` or an error description string
+for failed push attempts and `false` for successfull ones.  
+Returning `nil` will be handled as error!  
+The event data has to include the following keys:
 
 - **origin**  
   Prosody session the stanza came from (typically an s2s session).
@@ -125,7 +137,7 @@ following keys:
   The incoming push stanza (see [XEP-0357][1] for more information).
 
 Submodules (like mod\_push\_appserver\_apns) can trigger the event
-`unregister-push-token`. The event data includes the following keys:
+`unregister-push-token`. The event data has to include the following keys:
 
 - **token**  
   The push token to invalidate (note: this is not the secret obtained by
