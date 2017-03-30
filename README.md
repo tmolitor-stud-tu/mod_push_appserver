@@ -21,10 +21,10 @@ separate module.
 
 Just check out the repository somewhere and point prosody at this directory
 using `plugin_paths` in its main config file.  
-For example: `plugin_paths = { "/usr/local/lib/mod\_push\_appserver" }`.
+For example: `plugin_paths = { "/usr/local/lib/mod_push_appserver" }`.
 
-Then add `mod\_push\_appserver` and the submodule you need (for example
-`mod\_push\_appserver\_apns`) to global `modules_enabled` or to the enabled
+Then add `mod_push_appserver` and the submodule you need (for example
+`mod_push_appserver_apns`) to global `modules_enabled` or to the enabled
 modules of a specific virtual host.
 
 I will eventually add a commented minimal configuration example for prosody
@@ -35,13 +35,13 @@ to this repository, too.
 For VoIP pushes to APNS, the priority should be set to `high`. The alert text can
 be ignored in this case (if you only want to wakeup your device). For normal push
 notifications, the priorities `high` and `silent` are supported. The configured
-alert text (`push\_appserver\_apns\_push\_alert`) is ignored for `silent` pushes.
+alert text (`push_appserver_apns_push_alert`) is ignored for `silent` pushes.
 
 ### HTTP API endpoints
 
 All `POST` endpoints can be used via `GET` to get back a simple html form which
 allows you to manually test the endpoint behaviour in your browser, if the config
-option `push\_appserver\_debugging` is set to true (an error is returned otherwise).
+option `push_appserver_debugging` is set to true (an error is returned otherwise).
 
 - POST to `http://<host>:5280/push_appserver/v1/register` or
   `https://<host>:5281/push_appserver/v1/register`  
