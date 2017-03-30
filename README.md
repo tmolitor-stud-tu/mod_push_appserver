@@ -3,6 +3,12 @@
 Simple and extendable app server for XMPP push notifications as defined in
 [XEP-0357][1].
 
+The app server is implemented as a module for the [Prosody][2] XMPP server.
+
+Currently, only push notifications to Apple's [APNS][3] are implemented, but
+other push services (such as Google's [FCM][4]) can easily be added in a
+separate module.
+
 ## Requirements
 
 - Prosody 0.9 or later.
@@ -10,21 +16,19 @@ Simple and extendable app server for XMPP push notifications as defined in
 - Installed penlight Lua library (Debian package: `lua-penlight`).
 - Installed luasec Lua library version 0.5 (Debian package: `lua-sec`), higher
   versions are untested.
+ 
+## Installation
 
-## Notes
+Just check out the repository somewhere and point prosody at this directory
+using `plugin_paths` in its main config file.  
+For example: `plugin_paths = { "/usr/local/lib/mod_push_appserver" }`.
 
-The app server is implemented as a module for the [Prosody][2] XMPP server.
+I will eventually add a commented minimal configuration example for prosody, too.
 
-Currently, only push notifications to Apple's [APNS][3] are implemented, but
-other push services (such as Google's [FCM][4]) can easily be added in a
-separate module.
+## Usage notes
 
-mod\_push\_appserver\_apns needs APNS client certificate and key files in the
-module directory under the name `push.pem` (certificate in PEM fomat) and
-`push.key` (key in PEM format, no password!).
-
-For VoIP pushes, the priority should be set to `high`. The alert text can be
-ignored in this case (if you only want to wakeup your device). For normal push
+For VoIP pushes to APNS, the priority should be set to `high`. The alert text can
+be ignored in this case (if you only want to wakeup your device). For normal push
 notifications, the priorities `high` and `silent` are supported. The configured
 alert text (`push_appserver_apns_push_alert`) is ignored for `silent` pushes.
 
@@ -74,10 +78,16 @@ alert text (`push_appserver_apns_push_alert`) is ignored for `silent` pushes.
 ### Configuration options (mod\_push\_appserver)
 
 - **push\_appserver\_debugging** *(boolean)*  
-  Make `/push_appserver/v1/settings` HTTP endpoint available. Default: `false`.
+  Make `/push_appserver/v1/settings` HTTP endpoint available. Default: `false`.  
+  This setting will also make http forms available at all `POST` HTTP endpoints
+  for easier manual testing of your setup by simply using your browser of choice.
 
 ### Configuration options (mod\_push\_appserver\_apns)
 
+- **push\_appserver\_apns\_cert** *(string)*  
+  Path to your APNS push certificate in PEM format.
+- **push\_appserver\_apns\_key** *(string)*  
+  Path to your APNS push certificate key in PEM format.
 - **push\_appserver\_apns\_capath** *(string)*  
   Path to CA certificates directory. Default: `"/etc/ssl/certs"` (Debian and
   Ubuntu use this path for the system CA store).
@@ -95,7 +105,12 @@ alert text (`push_appserver_apns_push_alert`) is ignored for `silent` pushes.
   Interval in seconds to query Apple's feedback service for extinction of
   invalid tokens. Default: 24 hours.
 
-### Interaction between mod\_push\_appserver and mod\_push\_appserver\_apns
+## Implementation notes
+
+mod\_push\_appserver and its submodules use events to communicate with each
+other. These events are documented here.
+
+### Interaction between mod\_push\_appserver and its submodules
 
 mod\_push\_appserver triggers the event `incoming-push-to-<push type>`
 (currently only the type `apns` is supported). The event data includes the
@@ -109,14 +124,14 @@ following keys:
 - **stanza**  
   The incoming push stanza (see [XEP-0357][1] for more information).
 
-mod\_push\_appserver\_apns triggers the event `unregister-push-token`. The event
-data includes the following keys:
+Submodules (like mod\_push\_appserver\_apns) can trigger the event
+`unregister-push-token`. The event data includes the following keys:
 
 - **token**  
   The push token to invalidate (note: this is not the secret obtained by
   registering the device, but the raw token obtained from APNS, FCM etc.).
 - **type**  
-  `apns`, etc.
+  `apns`, `fcm` etc.
 - **timestamp**  
   The timestamp of the delete request. mod\_push\_appserver won't unregister the
   token if it was re-registered after this timestamp.
@@ -135,11 +150,6 @@ data includes the following keys:
   secret = "384e51b4b2d5e4758e5dc342b22dea9217212f2c4886e2a3dcf16f3eb0eb3807"
 }
 ```
-
-## TODO
-
-Periodically (about once a day), query Apple's feedback service to react to
-failed push notifications (remove push settings for given device).
 
 [1]: https://xmpp.org/extensions/xep-0357.html
 [2]: https://prosody.im/
