@@ -87,6 +87,23 @@ local push_store = (function()
 	return api;
 end)();
 
+-- html helper
+local function html_skeleton()
+	local header, footer;
+	header = "<!DOCTYPE html>\n<html><head><title>mod_"..module.name.." settings</title></head><body>\n";
+	footer = "\n</body></html>";
+	return header, footer;
+end
+
+local function get_html_form(...)
+	local html = '<form method="post"><table>\n';
+	for i,v in ipairs(arg) do
+		html = html..'<tr><td>'..tostring(v)..'</td><td><input type="text" name="'..tostring(v)..'" required></td></tr>\n';
+	end
+	html = html..'<tr><td>&nbsp;</td><td><button type="submit">send request</button></td></tr>\n</table></form>';
+	return html;
+end
+
 -- hooks
 local function sendError(origin, stanza)
 	origin.send(st.error_reply(stanza, "cancel", "item-not-found", "Unknown push node/secret"));
@@ -124,7 +141,7 @@ module:hook("iq/host", function (event)
 	module:log("info", "Firing event '%s' (node = '%s', secret = '%s')", "incoming-push-to-"..settings["type"], settings["node"], settings["secret"]);
 	local success = module:fire_event("incoming-push-to-"..settings["type"], {origin = origin, settings = settings, stanza = stanza});
 	if success or success == nil then
-		module:log("error", "Push handler for type '%s' not executed successfully%s", settings["type"], type(success) == "string" and ": "..success or "");
+		module:log("error", "Push handler for type '%s' not executed successfully%s", settings["type"], type(success) == "string" and ": "..success or ": handler not found");
 		origin.send(st.error_reply(stanza, "wait", "internal-server-error", type(success) == "string" and success or "Internal error in push handler"));
 		settings["last_push_error"] = datetime.datetime();
 	else
@@ -135,20 +152,18 @@ module:hook("iq/host", function (event)
 	return true;
 end);
 
-module:hook("unregister-push-node", function(event)
-	local node, type = event.node, event.type;
+local function unregister_push_node(node, type)
 	local settings = push_store:get(node);
-	if settings["type"] == event.type then
-		module:log("info", "Unregistered push device, returning: 'OK', '%s', '%s'", tostring(event.node), tostring(settings["secret"]));
+	if settings["type"] == type then
+		module:log("info", "Unregistered push device, returning: 'OK', '%s', '%s'", tostring(node), tostring(settings["secret"]));
 		module:log("debug", "settings: %s", pretty.write(settings));
-		module:log("debug", "event: %s", pretty.write(event));
-		push_store:set(event.node, nil);
-		return "OK\n"..event.node.."\n"..settings["secret"];
+		push_store:set(node, nil);
+		return "OK\n"..node.."\n"..settings["secret"];
 	end
 	
-	module:log("info", "Node not found in unregister, returning: 'ERROR', 'Node not found!'", tostring(event.node));
+	module:log("info", "Node not found in unregister, returning: 'ERROR', 'Node not found!'", tostring(node));
 	return "ERROR\nNode not found!";
-end);
+end
 
 module:hook("unregister-push-token", function(event)
 	local token, type, timestamp = event.token, event.type, event.timestamp or os.time();
@@ -157,7 +172,7 @@ module:hook("unregister-push-token", function(event)
 		local settings = push_store:get(node);
 		local register_timestamp = datetime.parse(settings["renewed"] or settings["registered"]);
 		if timestamp > register_timestamp then
-			return module:trigger("unregister-push-node", {node = node, type = type});
+			return unregister_push_node(node, type);
 		else
 			module:log("warn", "Unregister via token failed: node '%s' was re-registered after delete timestamp %s", node, datetime.datetime(timestamp));
 		end
@@ -168,6 +183,12 @@ module:hook("unregister-push-token", function(event)
 end);
 
 -- http service
+local function serve_hello(event, path)
+	local header, footer = html_skeleton();
+	event.response.headers.content_type = "text/html;charset=utf-8";
+	return header.."<h1>Hello from mod_"..module.name.."!</h1>"..footer;
+end
+
 local function serve_register_v1(event, path)
 	if #event.request.body > body_size_limit then
 		module:log("warn", "Post body too large: %d bytes", #event.request.body);
@@ -184,7 +205,6 @@ local function serve_register_v1(event, path)
 	if settings["type"] == arguments["type"] and settings["token"] == arguments["token"] then
 		module:log("info", "Re-registered push device, returning: 'OK', '%s', '%s'", tostring(arguments["node"]), tostring(settings["secret"]));
 		module:log("debug", "settings: %s", pretty.write(settings));
-		module:log("debug", "arguments: %s", pretty.write(arguments));
 		settings["renewed"] = datetime.datetime();
 		push_store:set(arguments["node"], settings);
 		return "OK\n"..arguments["node"].."\n"..settings["secret"];
@@ -199,8 +219,15 @@ local function serve_register_v1(event, path)
 	push_store:set(arguments["node"], settings);
 	
 	module:log("info", "Registered push device, returning: 'OK', '%s', '%s'", tostring(arguments["node"]), tostring(settings["secret"]));
-	module:log("debug", "arguments: %s", pretty.write(arguments));
+	module:log("debug", "settings: %s", pretty.write(settings));
 	return "OK\n"..arguments["node"].."\n"..settings["secret"];
+end
+
+local function serve_register_form_v1(event, path)
+	if not debugging then return 403; end
+	local header, footer = html_skeleton();
+	event.response.headers.content_type = "text/html;charset=utf-8";
+	return header.."<h1>Register Push Node</h1>"..get_html_form("type", "node", "token")..footer;
 end
 
 local function serve_unregister_v1(event, path)
@@ -215,7 +242,14 @@ local function serve_unregister_v1(event, path)
 		return 400;
 	end
 	
-	return module:trigger("unregister-push-node", {arguments = arguments});
+	return unregister_push_node(arguments["node"], arguments["type"]);
+end
+
+local function serve_unregister_form_v1(event, path)
+	if not debugging then return 403; end
+	local header, footer = html_skeleton();
+	event.response.headers.content_type = "text/html;charset=utf-8";
+	return header.."<h1>Unregister Push Node</h1>"..get_html_form("type", "node")..footer;
 end
 
 local function serve_push_v1(event, path)
@@ -239,7 +273,7 @@ local function serve_push_v1(event, path)
 	
 	local response = "ERROR\nInternal server error!";
 	module:log("info", "Firing event '%s' (node = '%s', secret = '%s')", "incoming-push-to-"..settings["type"], settings["node"], settings["secret"]);
-	local success = module:fire_event("incoming-push-to-"..settings["type"], {origin = origin, settings = settings, stanza = nil});
+	local success = module:fire_event("incoming-push-to-"..settings["type"], {origin = nil, settings = settings, stanza = nil});
 	if success or success == nil then
 		module:log("error", "Push handler for type '%s' not executed successfully%s", settings["type"], type(success) == "string" and ": "..success or "");
 		settings["last_push_error"] = datetime.datetime();
@@ -248,39 +282,46 @@ local function serve_push_v1(event, path)
 		response = "OK\n"..node;
 	end
 	push_store:set(node, settings);
+	module:log("debug", "settings: %s", pretty.write(settings));
 	return response;
 end
 
-local function serve_data_v1(event, path)
+local function serve_push_form_v1(event, path)
 	if not debugging then return 403; end
-	local output = "<!DOCTYPE html>\n<html><head><title>mod_"..module.name.." settings</title></head><body>";
+	local header, footer = html_skeleton();
+	event.response.headers.content_type = "text/html;charset=utf-8";
+	return header.."<h1>Send Push Request</h1>"..get_html_form("node", "secret")..footer;
+end
+
+local function serve_settings_v1(event, path)
+	if not debugging then return 403; end
+	local output, footer = html_skeleton();
+	event.response.headers.content_type = "text/html;charset=utf-8";
 	if not path or path == "" then
 		output = output.."<h1>List of devices (node uuids)</h1>";
 		for node in push_store:list() do
-			output = output .. '<a href="/v1/settings/'..node..'">'..node.."</a>\n";
+			output = output .. '<a href="/v1/settings/'..node..'">'..node.."</a><br>\n";
 		end
 		return output.."</body></html>";
 	end
 	path = path:match("^([^/]+).*$");
 	local settings = push_store:get(path);
-	return output..'<a href="/v1/settings">Back to List</a><br>\n<pre>'..pretty.write(settings).."</pre></body></html>";
-end
-
-local function serve_hello(event, path)
-	event.response.headers.content_type = "text/html;charset=utf-8"
-	return "<!DOCTYPE html>\n<html><head></head><body><h1>Hello from mod_"..module.name.."!</h1>\n</body></html>"..tostring(path);
+	return output..'<a href="/v1/settings">Back to List</a><br>\n<pre>'..pretty.write(settings).."</pre>"..footer;
 end
 
 module:provides("http", {
 	route = {
 		["GET"] = serve_hello;
 		["GET /"] = serve_hello;
+		["GET /v1/register"] = serve_register_form_v1;
 		["POST /v1/register"] = serve_register_v1;
+		["GET /v1/unregister"] = serve_unregister_form_v1;
 		["POST /v1/unregister"] = serve_unregister_v1;
+		["GET /v1/push"] = serve_push_form_v1;
 		["POST /v1/push"] = serve_push_v1;
-		["GET /v1/settings"] = serve_data_v1;
-		["GET /v1/settings/*"] = serve_data_v1;
+		["GET /v1/settings"] = serve_settings_v1;
+		["GET /v1/settings/*"] = serve_settings_v1;
 	};
 });
 
-module:log("info", "Appserver started at URL: <%s>", module:http_url());
+module:log("info", "Appserver started at URL: <%s>", module:http_url().."/");
