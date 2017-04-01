@@ -15,7 +15,7 @@ local hashes = require "util.hashes";
 local datetime = require "util.datetime";
 local st = require "util.stanza";
 local dataform = require "util.dataforms".new;
-local t = require "util.throttle";
+local t = module:require "throttle";
 local string = string;
 
 -- configuration
@@ -88,9 +88,6 @@ local push_store = (function()
 		end
 		if token2node_cache[token] then return token2node_cache[token].node; end
 		return nil;
-	end
-	function api:get_throttle(node)
-		
 	end
 	return api;
 end)();
