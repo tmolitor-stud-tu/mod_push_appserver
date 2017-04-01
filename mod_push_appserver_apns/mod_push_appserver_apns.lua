@@ -4,7 +4,7 @@
 --
 -- This file is MIT/X11 licensed.
 --
--- Implementation of a simple push app server
+-- Submodule implementing APNS communication
 --
 
 -- imports
@@ -247,9 +247,9 @@ end
 -- setup
 module:hook("incoming-push-to-apns", apns_handler);
 -- module:add_timer(feedback_request_interval, query_feedback_service);
-module:log("info", "Appserver APNS module loaded");
+module:log("info", "Appserver APNS submodule loaded");
 query_feedback_service();	-- query feedback service directly after module load and install timer
 function module.unload()
 	module:unhook("incoming-push-to-apns", apns_handler);
-	module:log("info", "Appserver APNS module unloaded");
+	module:log("info", "Appserver APNS submodule unloaded");
 end

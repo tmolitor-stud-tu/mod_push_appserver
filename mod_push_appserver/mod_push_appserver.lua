@@ -15,11 +15,16 @@ local hashes = require "util.hashes";
 local datetime = require "util.datetime";
 local st = require "util.stanza";
 local dataform = require "util.dataforms".new;
+local t = require "util.throttle";
 local string = string;
 
--- config
+-- configuration
 local body_size_limit = 4096; -- 4 KB
-local debugging = module:get_option_boolean("push_appserver_debugging", false);
+local debugging = module:get_option_boolean("push_appserver_debugging", false);		-- debugging (should be false on production servers)
+local rate_limit = module:get_option_number("push_appserver_rate_limit", 5);		-- allow only one push in five seconds (try to mitigate DOS attacks)
+
+-- global state
+local throttles = {}
 
 --- sanity
 local parser_body_limit = module:context("*"):get_option_number("http_max_content_size", 10*1024*1024);
@@ -84,8 +89,19 @@ local push_store = (function()
 		if token2node_cache[token] then return token2node_cache[token].node; end
 		return nil;
 	end
+	function api:get_throttle(node)
+		
+	end
 	return api;
 end)();
+
+-- throttling (try to prevent denial of service attacks)
+local function create_throttle(node)
+	if not throttles[node] then
+		throttles[node] = t.create(1, rate_limit);
+	end
+	return throttles[node];
+end
 
 -- html helper
 local function html_skeleton()
@@ -115,7 +131,7 @@ local options_form = dataform {
 	{ name = "secret"; type = "hidden"; required = true; };
 };
 
-module:hook("iq/host", function (event)
+module:hook("iq/host", function(event)
 	local stanza, origin = event.stanza, event.origin;
 	
 	local publishNode = stanza:find("{http://jabber.org/protocol/pubsub}/publish");
@@ -138,6 +154,14 @@ module:hook("iq/host", function (event)
 	if not settings or not #settings then return sendError(origin, stanza); end
 	if secret ~= settings["secret"] then return sendError(origin, stanza); end
 	
+	-- throttling
+	local throttle = create_throttle(settings["node"]);
+	if not throttle:poll(1) then
+		module:log("warn", "Rate limit for node '%s' reached, ignoring push request (and returning 'OK')", settings["node"]);
+		origin.send(st.reply(stanza));
+		return true;
+	end
+	
 	module:log("info", "Firing event '%s' (node = '%s', secret = '%s')", "incoming-push-to-"..settings["type"], settings["node"], settings["secret"]);
 	local success = module:fire_event("incoming-push-to-"..settings["type"], {origin = origin, settings = settings, stanza = stanza});
 	if success or success == nil then
@@ -155,9 +179,10 @@ end);
 local function unregister_push_node(node, type)
 	local settings = push_store:get(node);
 	if settings["type"] == type then
+		push_store:set(node, nil);
+		throttles[node] = nil;
 		module:log("info", "Unregistered push device, returning: 'OK', '%s', '%s'", tostring(node), tostring(settings["secret"]));
 		module:log("debug", "settings: %s", pretty.write(settings));
-		push_store:set(node, nil);
 		return "OK\n"..node.."\n"..settings["secret"];
 	end
 	
@@ -272,7 +297,15 @@ local function serve_push_v1(event, path)
 	end
 	
 	local response = "ERROR\nInternal server error!";
-	module:log("info", "Firing event '%s' (node = '%s', secret = '%s')", "incoming-push-to-"..settings["type"], settings["node"], settings["secret"]);
+	
+	-- throttling
+	local throttle = create_throttle(node);
+	if not throttle:poll(1) then
+		module:log("warn", "Rate limit for node '%s' reached, ignoring push request (and returning 'OK')", node);
+		return "OK\n"..node;
+	end
+	
+	module:log("info", "Firing event '%s' (node = '%s', secret = '%s')", "incoming-push-to-"..settings["type"], node, secret);
 	local success = module:fire_event("incoming-push-to-"..settings["type"], {origin = nil, settings = settings, stanza = nil});
 	if success or success == nil then
 		module:log("error", "Push handler for type '%s' not executed successfully%s", settings["type"], type(success) == "string" and ": "..success or "");

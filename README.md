@@ -90,6 +90,9 @@ option `push_appserver_debugging` is set to true (an error is returned otherwise
   Make `/push_appserver/v1/settings` HTTP endpoint available. Default: `false`.  
   This setting will also make http forms available at all `POST` HTTP endpoints
   for easier manual testing of your setup by simply using your browser of choice.
+- **push\_appserver\_rate\_limit** *(number)*  
+  Allow this much push requests to one node per second. Default: 5.  
+  This should mitigate some DOS attacks.
 
 ### Configuration options (mod\_push\_appserver\_apns)
 
