@@ -24,18 +24,24 @@ using `plugin_paths` in its main config file.
 For example: `plugin_paths = { "/usr/local/lib/mod_push_appserver" }`.
 
 Then add `mod_push_appserver` and the submodule you need (for example
-`mod_push_appserver_apns`) to global `modules_enabled` or to the enabled
-modules of a specific virtual host.
+`mod_push_appserver_apns` or `mod_push_appserver_fcm`) to global
+`modules_enabled` or to the enabled modules of a specific virtual host.
 
 I will eventually add a commented minimal configuration example for prosody
 to this repository, too.
 
 ## Usage notes
 
-For VoIP pushes to APNS, the priority should be set to `high`. The alert text can
-be ignored in this case (if you only want to wakeup your device). For normal push
-notifications, the priorities `high` and `silent` are supported. The configured
-alert text (`push_appserver_apns_push_alert`) is ignored for `silent` pushes.
+For chat apps using VoIP pushes to APNS, the priority should be set to `high`.
+The alert text can be ignored in this case (if you only want to wakeup your
+device). For normal push notifications, the priorities `high` and `silent` are
+supported. The configured alert text (`push_appserver_apns_push_alert`) is
+ignored for `silent` pushes.
+
+For pushes to FCM the priorities `high` and `normal` are supported with `normal`
+priorities being delayed while the device is in doze mode.
+Pushes having priority `high` are always delivered, even in doze mode, thus
+should be used for chat apps.
 
 ### HTTP API endpoints
 
@@ -45,7 +51,7 @@ option `push_appserver_debugging` is set to true (an error is returned otherwise
 
 - POST to `http://<host>:5280/push_appserver/v1/register` or
   `https://<host>:5281/push_appserver/v1/register`  
-  POST data: `type=<push type>&node=<device uuid>&token=<apns push token>`  
+  POST data: `type=<push type>&node=<device uuid>&token=<apns/fcm/etc. push token>`  
   function: register device for push  
   result: text document separated by `\n`  
   - first line: `OK`, everything else (including `ERROR`) is specified as error
@@ -120,6 +126,24 @@ option `push_appserver_debugging` is set to true (an error is returned otherwise
   Interval in seconds to query Apple's feedback service for extinction of
   invalid tokens. Default: 24 hours.
 
+### Configuration options (mod\_push\_appserver\_fcm)
+
+- **push\_appserver\_fcm\_key** *(string)*  
+  Your FCM push credentials.
+- **push\_appserver\_fcm\_capath** *(string)*  
+  Path to CA certificates directory. Default: `"/etc/ssl/certs"` (Debian and
+  Ubuntu use this path for the system CA store).
+- **push\_appserver\_fcm\_ciphers** *(string)*  
+  Ciphers to use when establishing a tls connection. Default:
+  `ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256`
+- **push\_appserver\_fcm\_push\_ttl** *(number)*  
+  TTL for push notification in seconds, can be 4 weeks at max.
+  Default: `nil` (that means 4 weeks).
+- **push\_appserver\_fcm\_push\_priority** *(string)*  
+  Value `"high"` for high priority pushes that wake up the device even when
+  in doze mode or `"normal"` for normal pushes that can be delayed.
+  Default: `"high"`.
+
 ## Implementation notes
 
 mod\_push\_appserver and its submodules use events to communicate with each
@@ -128,7 +152,7 @@ other. These events are documented here.
 ### Interaction between mod\_push\_appserver and its submodules
 
 mod\_push\_appserver triggers the event `incoming-push-to-<push type>`
-(currently only the type `apns` is supported).
+(currently only the types `apns` and `fcm` are supported).
 The event handler has to return `true` or an error description string
 for failed push attempts and `false` for successfull ones.  
 Returning `nil` will be handled as error!  
@@ -137,7 +161,7 @@ The event data has to include the following keys:
 - **origin**  
   Prosody session the stanza came from (typically an s2s session).
 - **settings**  
-  The registered push settings available at
+  The registered push settings available at the
   `/push_appserver/v1/settings/<device uuid>` HTTP endpoint.
 - **stanza**  
   The incoming push stanza (see [XEP-0357][1] for more information).
