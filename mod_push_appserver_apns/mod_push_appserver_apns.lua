@@ -264,6 +264,8 @@ module:hook("incoming-push-to-apns", apns_handler);
 module:log("info", "Appserver APNS submodule loaded");
 query_feedback_service();	-- query feedback service directly after module load and install timer
 function module.unload()
-	module:unhook("incoming-push-to-apns", apns_handler);
+	if module.unhook then
+		module:unhook("incoming-push-to-apns", apns_handler);
+	end
 	module:log("info", "Appserver APNS submodule unloaded");
 end
