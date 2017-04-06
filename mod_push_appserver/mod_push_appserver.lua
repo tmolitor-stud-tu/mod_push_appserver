@@ -344,10 +344,13 @@ module:provides("http", {
 		["GET"] = serve_hello;
 		["GET /"] = serve_hello;
 		["GET /v1/register"] = serve_register_form_v1;
+		["GET /v1/register/*"] = serve_register_form_v1;
 		["POST /v1/register"] = serve_register_v1;
 		["GET /v1/unregister"] = serve_unregister_form_v1;
+		["GET /v1/unregister/*"] = serve_unregister_form_v1;
 		["POST /v1/unregister"] = serve_unregister_v1;
 		["GET /v1/push"] = serve_push_form_v1;
+		["GET /v1/push/*"] = serve_push_form_v1;
 		["POST /v1/push"] = serve_push_v1;
 		["GET /v1/settings"] = serve_settings_v1;
 		["GET /v1/settings/*"] = serve_settings_v1;

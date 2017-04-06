@@ -103,6 +103,9 @@ option `push_appserver_debugging` is set to true (an error is returned otherwise
 - **push\_appserver\_apns\_capath** *(string)*  
   Path to CA certificates directory. Default: `"/etc/ssl/certs"` (Debian and
   Ubuntu use this path for the system CA store).
+- **push\_appserver\_apns\_ciphers** *(string)*  
+  Ciphers to use when establishing a tls connection. Default:
+  `ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256`
 - **push\_appserver\_apns\_sandbox** *(boolean)*
   Use apns sandbox api endpoint if `true`, production endpoint otherwise.
   Default: `true`.

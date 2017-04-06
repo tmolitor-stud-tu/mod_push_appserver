@@ -21,6 +21,12 @@ module:depends("push_appserver");
 local apns_cert = module:get_option_string("push_appserver_apns_cert", nil);					--push certificate (no default)
 local apns_key = module:get_option_string("push_appserver_apns_key", nil);						--push certificate key (no default)
 local capath = module:get_option_string("push_appserver_apns_capath", "/etc/ssl/certs");		--ca path on debian systems
+local ciphers = module:get_option_string("push_appserver_apns_ciphers", 
+	"ECDHE-RSA-AES256-GCM-SHA384:"..
+	"ECDHE-ECDSA-AES256-GCM-SHA384:"..
+	"ECDHE-RSA-AES128-GCM-SHA256:"..
+	"ECDHE-ECDSA-AES128-GCM-SHA256"
+);	--supported ciphers
 local push_alert = module:get_option_string("push_appserver_apns_push_alert", "dummy");			--dummy alert text
 local push_ttl = module:get_option_number("push_appserver_apns_push_ttl", nil);					--no ttl
 local push_priority = module:get_option_string("push_appserver_apns_push_priority", "silent");	--silent priority pushes
@@ -132,11 +138,19 @@ local function init_connection(conn, host, port, timeout)
 	local params = {
 		mode = "client",
 		protocol = "tlsv1_2",
-		verify = "none",
+		verify = {"peer", "fail_if_no_peer_cert"},
 		capath = capath,
+		ciphers = ciphers,
 		certificate = apns_cert,
 		key = apns_key,
-		options = "no_compression",
+		options = {
+			"no_sslv2",
+			"no_sslv3",
+			"no_ticket",
+			"no_compression",
+			"single_dh_use",
+			"single_ecdh_use",
+		},
 	}
 	local success, err;
 	
