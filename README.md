@@ -5,9 +5,9 @@ Simple and extendable app server for XMPP push notifications as defined in
 
 The app server is implemented as a module for the [Prosody][2] XMPP server.
 
-Currently, only push notifications to Apple's [APNS][3] are implemented, but
-other push services (such as Google's [FCM][4]) can easily be added in a
-separate module.
+Currently, only push notifications to Apple's [APNS][3] and Google's [FCM][4]
+are implemented, but other push services can easily be added in a separate
+module.
 
 ## Requirements
 
