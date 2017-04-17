@@ -330,13 +330,13 @@ local function serve_settings_v1(event, path)
 	if not path or path == "" then
 		output = output.."<h1>List of devices (node uuids)</h1>";
 		for node in push_store:list() do
-			output = output .. '<a href="/v1/settings/'..node..'">'..node.."</a><br>\n";
+			output = output .. '<a href="'..(not path and "settings/" or "")..node..'">'..node.."</a><br>\n";
 		end
 		return output.."</body></html>";
 	end
 	path = path:match("^([^/]+).*$");
 	local settings = push_store:get(path);
-	return output..'<a href="/v1/settings">Back to List</a><br>\n<pre>'..pretty.write(settings).."</pre>"..footer;
+	return output..'<a href="../settings">Back to List</a><br>\n<pre>'..pretty.write(settings).."</pre>"..footer;
 end
 
 module:provides("http", {
