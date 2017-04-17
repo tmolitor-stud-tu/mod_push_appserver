@@ -25,7 +25,8 @@ local ciphers = module:get_option_string("push_appserver_apns_ciphers",
 	"ECDHE-RSA-AES256-GCM-SHA384:"..
 	"ECDHE-ECDSA-AES256-GCM-SHA384:"..
 	"ECDHE-RSA-AES128-GCM-SHA256:"..
-	"ECDHE-ECDSA-AES128-GCM-SHA256"
+	"ECDHE-ECDSA-AES128-GCM-SHA256:"..
+	"AES256-SHA"	-- apparently this is needed for the old binary apns endpoint
 );	--supported ciphers
 local push_alert = module:get_option_string("push_appserver_apns_push_alert", "dummy");			--dummy alert text
 local push_ttl = module:get_option_number("push_appserver_apns_push_ttl", nil);					--no ttl
