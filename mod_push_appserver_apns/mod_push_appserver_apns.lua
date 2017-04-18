@@ -68,7 +68,7 @@ local function bin2short(bin)
 end
 local function long2bin(long)
 	if long < 0 or long > 2^32 - 1 then return nil; end
-	return hex2bin(string.format('%04X', long));
+	return hex2bin(string.format('%08X', long));
 end
 local function bin2long(bin)
 	return tonumber(bin2hex(string.sub(bin, 1, 4)), 16);
