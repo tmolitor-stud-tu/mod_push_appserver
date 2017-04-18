@@ -105,11 +105,12 @@ local function create_frame(token, payload, ttl, priority)
 				  (ttl and pack_item("ttl", ttl) or "")..		-- ttl is optional
 				  pack_item("priority",		priority);			-- priority is optional (default: silent)
 	local command = byte2bin(2);	-- notify via latest binary protocol
-	local frame_length = short2bin(string.len(frame));
-	frame = command..frame_length..frame;
-	
-	module:log("debug", "Frame data: %s", tostring(bin2hex(frame)));
+	local frame_length = long2bin(string.len(frame));
 	module:log("debug", "Frame ID: %s", tostring(id));
+	module:log("debug", "Frame length: %d (%s)", string.len(frame), tostring(bin2hex(frame_length)));
+	module:log("debug", "Frame data: %s", tostring(bin2hex(frame)));
+	frame = command..frame_length..frame;
+	module:log("debug", "Frame: %s", tostring(bin2hex(frame)));
 	return frame, id;
 end
 local function extract_error(error_frame)
