@@ -223,11 +223,16 @@ local function serve_register_v1(event, path)
 		return 400;
 	end
 	
+	-- if we already know this node and push type combination just use the old secret to provide a more stable api
 	local settings = push_store:get(arguments["node"]);
-	if settings["type"] == arguments["type"] and settings["token"] == arguments["token"] then
-		module:log("info", "Re-registered push device, returning: 'OK', '%s', '%s'", tostring(arguments["node"]), tostring(settings["secret"]));
-		module:log("debug", "settings: %s", pretty.write(settings));
+	if settings["type"] == arguments["type"] then
+		module:log("info", "Re-registered push device (%s), returning: 'OK', '%s', '%s'",
+			settings["token"] == arguments["token"] and "same token" or "token changed",
+			tostring(arguments["node"]),
+			tostring(settings["secret"]));
+		settings["token"] = arguments["token"];
 		settings["renewed"] = datetime.datetime();
+		module:log("debug", "settings: %s", pretty.write(settings));
 		push_store:set(arguments["node"], settings);
 		return "OK\n"..arguments["node"].."\n"..settings["secret"];
 	end
