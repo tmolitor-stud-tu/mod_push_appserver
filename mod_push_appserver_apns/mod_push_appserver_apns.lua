@@ -225,8 +225,7 @@ local function query_feedback_service()
 	module:log("info", "Connecting to APNS feedback service");
 	conn = init_connection(nil, feedback_host, feedback_port, 8);	-- use 8 second read timeout (default: 1s)
 	if not conn then	-- error occured
-		module:add_timer(feedback_request_interval, query_feedback_service);
-		return true;
+		return feedback_request_interval;		-- run timer again
 	end
 	
 	repeat
@@ -235,8 +234,7 @@ local function query_feedback_service()
 		if err then
 			module:log("error", "Could not receive data from APNS feedback socket (receive 1): %s", tostring(err));
 			close_connection(conn);
-			module:add_timer(feedback_request_interval, query_feedback_service);
-			return true;
+			return feedback_request_interval;		-- run timer again
 		end
 		local timestamp = bin2long(string.sub(feedback, 1, 4));
 		local token_length = bin2short(string.sub(feedback, 5, 6));
@@ -245,8 +243,7 @@ local function query_feedback_service()
 		if err then		-- timeout is also an error here, since the frame is incomplete in this case
 			module:log("error", "Could not receive data from APNS feedback socket (receive 2): %s", tostring(err));
 			close_connection(conn);
-			module:add_timer(feedback_request_interval, query_feedback_service);
-			return true;
+			return feedback_request_interval;		-- run timer again
 		end
 		local token = bin2hex(string.sub(feedback, 1, token_length));
 		module:log("info", "Got feedback service entry for token '%s' timestamped with '%s", token, datetime.datetime(timestamp));
@@ -256,15 +253,14 @@ local function query_feedback_service()
 		end
 	until false;
 	close_connection(conn);
-	module:add_timer(feedback_request_interval, query_feedback_service);
-	return false;
+	return feedback_request_interval;		-- run timer again
 end
 
 -- setup
 module:hook("incoming-push-to-apns", apns_handler);
--- module:add_timer(feedback_request_interval, query_feedback_service);
+module:add_timer(feedback_request_interval, query_feedback_service);
 module:log("info", "Appserver APNS submodule loaded");
-query_feedback_service();	-- query feedback service directly after module load and install timer
+query_feedback_service();	-- query feedback service directly after module load
 function module.unload()
 	if module.unhook then
 		module:unhook("incoming-push-to-apns", apns_handler);
