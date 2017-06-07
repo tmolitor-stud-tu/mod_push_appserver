@@ -136,7 +136,7 @@ end
 
 -- network functions
 local function init_connection(conn, host, port, timeout)
-	if not timeout then timeout = 1; end	-- default value
+	if not timeout then timeout = 0.1; end	-- default value, this allows for 10 pushes per second
 	local params = {
 		mode = "client",
 		protocol = "tlsv1_2",
@@ -223,7 +223,7 @@ end
 local function query_feedback_service()
 	local conn;
 	module:log("info", "Connecting to APNS feedback service");
-	conn = init_connection(nil, feedback_host, feedback_port, 8);	-- use 8 second read timeout (default: 1s)
+	conn = init_connection(nil, feedback_host, feedback_port, 8);	-- use 8 second read timeout
 	if not conn then	-- error occured
 		return feedback_request_interval;		-- run timer again
 	end
