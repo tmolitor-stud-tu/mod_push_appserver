@@ -13,6 +13,7 @@ local ssl = require "ssl";
 local string = require "string";
 local t_remove = table.remove;
 local datetime = require "util.datetime";
+local hashes = require "util.hashes";
 
 -- this is the master module
 module:depends("push_appserver");
