@@ -210,7 +210,7 @@ local function apns_handler(event)
 	
 	-- get status
 	local error_frame, err = conn:receive(6);
-	if err == "timeout" then return false; end		-- no error happened
+	if err == "timeout" or err == "wantread" then return false; end		-- no error happened (don't know how to handle wantread properly)
 	if err then
 		module:log("error", "Could not receive data from APNS socket: %s", tostring(err));
 		return "Error communicating with APNS (receive)";
