@@ -22,7 +22,7 @@ module:depends("push_appserver");
 local apns_cert = module:get_option_string("push_appserver_apns_cert", nil);					--push certificate (no default)
 local apns_key = module:get_option_string("push_appserver_apns_key", nil);						--push certificate key (no default)
 local capath = module:get_option_string("push_appserver_apns_capath", "/etc/ssl/certs");		--ca path on debian systems
-local ciphers = module:get_option_string("push_appserver_apns_ciphers", 
+local ciphers = module:get_option_string("push_appserver_apns_ciphers",
 	"ECDHE-RSA-AES256-GCM-SHA384:"..
 	"ECDHE-ECDSA-AES256-GCM-SHA384:"..
 	"ECDHE-RSA-AES128-GCM-SHA256:"..
@@ -231,11 +231,13 @@ local function query_feedback_service()
 	
 	repeat
 		local feedback, err = conn:receive(6);
-		if err == "timeout" then break; end		-- no error happened (no data left)
+		if err == "timeout" or err == "closed" then		-- no error happened (no data left)
+			module:log("info", "No more APNS errors left on feedback service");
+			break;
+		end
 		if err then
 			module:log("error", "Could not receive data from APNS feedback socket (receive 1): %s", tostring(err));
-			close_connection(conn);
-			return feedback_request_interval;		-- run timer again
+			break;
 		end
 		local timestamp = bin2long(string.sub(feedback, 1, 4));
 		local token_length = bin2short(string.sub(feedback, 5, 6));
@@ -243,8 +245,7 @@ local function query_feedback_service()
 		feedback, err = conn:receive(token_length);
 		if err then		-- timeout is also an error here, since the frame is incomplete in this case
 			module:log("error", "Could not receive data from APNS feedback socket (receive 2): %s", tostring(err));
-			close_connection(conn);
-			return feedback_request_interval;		-- run timer again
+			break;
 		end
 		local token = bin2hex(string.sub(feedback, 1, token_length));
 		module:log("info", "Got feedback service entry for token '%s' timestamped with '%s", token, datetime.datetime(timestamp));
