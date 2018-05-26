@@ -188,15 +188,20 @@ end
 -- handlers
 local function apns_handler(event)
 	local settings = event.settings;
+	local summary = event.summary;
 	
 	-- prepare data to send (using latest binary format, not the legacy binary format or the new http/2 format)
 	local payload;
-	if push_priority == "high" then
+	local priority = push_priority;
+	if push_priority == "auto" then
+		priority = summary["last-message-body"] ~= nil ? "high" : "silent";
+	end
+	if priority == "high" then
 		payload = '{"aps":{"alert":"'..push_alert..'","sound":"default"}}';
 	else
 		payload = '{"aps":{"content-available":1}}';
 	end
-	local frame, id = create_frame(settings["token"], payload, push_ttl, push_priority);
+	local frame, id = create_frame(settings["token"], payload, push_ttl, priority);
 	
 	conn = init_connection(conn, push_host, push_port);
 	if not conn then return "Error connecting to APNS"; end				-- error occured

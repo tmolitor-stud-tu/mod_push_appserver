@@ -97,7 +97,7 @@ option `push_appserver_debugging` is set to true (an error is returned otherwise
   This setting will also make http forms available at all `POST` HTTP endpoints
   for easier manual testing of your setup by simply using your browser of choice.
 - **push\_appserver\_rate\_limit** *(number)*  
-  Allow this much push requests to one node per second. Default: 5.  
+  Allow one request per this much seconds. Default: 5 (e.g. one request every 5 seconds).  
   This should mitigate some DOS attacks.
 
 ### Configuration options (mod\_push\_appserver\_apns)
@@ -120,7 +120,14 @@ option `push_appserver_debugging` is set to true (an error is returned otherwise
 - **push\_appserver\_apns\_push\_ttl** *(number)*  
   TTL for push notification in seconds. Default: `nil` (that means infinite).
 - **push\_appserver\_apns\_push\_priority** *(string)*  
-  Value `"high"` for high priority pushes or `"silent"` for silent pushes.
+  Value `"high"` for high priority pushes always triggering a visual indication on the user's phone,
+  `"silent"` for silent pushes that can be delayed or not delivered at all but don't trigger
+  a visual indication and `"auto"` to let the appserver automatically decide between `"high"` and `"silent"`
+  based on the presence of `"last-message-body"` in the push summary received from the XMPP server.
+  **NOTE**: if you have VoIP capabilities in your app `"silent"` pushes will become reliable and always
+  wake up your app without triggering any visual indications on the user's phone.
+  In VoIP mode your app can decide all by itself if it wants to show a notification to the user or not
+  by simply logging into the XMPP account in the backround and retrieving the stanzas that triggered the push.
   Default: `"silent"`.
 - **push\_appserver\_apns\_feedback\_request\_interval** *(number)*  
   Interval in seconds to query Apple's feedback service for extinction of
@@ -156,13 +163,15 @@ mod\_push\_appserver triggers the event `incoming-push-to-<push type>`
 The event handler has to return `true` or an error description string
 for failed push attempts and `false` for successfull ones.  
 Returning `nil` will be handled as error!  
-The event data has to include the following keys:
+The event data always includes the following keys:
 
 - **origin**  
   Prosody session the stanza came from (typically an s2s session).
 - **settings**  
-  The registered push settings available at the
-  `/push_appserver/v1/settings/<device uuid>` HTTP endpoint.
+  The registered push settings which are also available at the
+  `/push_appserver/v1/settings/<device uuid>` HTTP endpoint in debug mode.
+- **summary**  
+  The push summary (see [XEP-0357][1] for more information)
 - **stanza**  
   The incoming push stanza (see [XEP-0357][1] for more information).
 

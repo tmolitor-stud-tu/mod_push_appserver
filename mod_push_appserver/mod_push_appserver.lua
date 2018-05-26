@@ -206,6 +206,14 @@ local function registerPush(stanza, origin)
 	return true;
 end
 
+local summary_form = dataform {
+	{ name = "FORM_TYPE"; type = "hidden"; value = "urn:xmpp:push:summary"; };
+	{ name = "message-count"; type = "text-single"; };
+	{ name = "pending-subscription-count"; type = "text-single"; };
+	{ name = "last-message-sender"; type = "jid-single"; };
+	{ name = "last-message-body"; type = "text-single"; };
+};
+
 local options_form = dataform {
 	{ name = "FORM_TYPE"; value = "http://jabber.org/protocol/pubsub#publish-options"; };
 	{ name = "secret"; type = "hidden"; required = true; };
@@ -219,11 +227,13 @@ module:hook("iq/host", function(event)
 		return registerPush(stanza, origin);
 	end
 	
-	-- handle push
+	-- handle push and extract summary
 	local publishNode = stanza:find("{http://jabber.org/protocol/pubsub}/publish");
 	if not publishNode then return; end
-	local pushNode = publishNode:find("item/{urn:xmpp:push:0}notification");
-	if not pushNode then return; end
+	local summaryNode = publishNode:find("item/{urn:xmpp:push:0}notification/{jabber:x:data}");
+	if not summaryNode then return; end
+	local summary, errors = summary_form:data(summaryNode);
+	if errors then return sendError(origin, stanza); end
 	
 	-- push options and the secret therein are mandatory
 	local optionsNode = stanza:find("{http://jabber.org/protocol/pubsub}/publish-options/{jabber:x:data}");
@@ -249,7 +259,7 @@ module:hook("iq/host", function(event)
 	end
 	
 	module:log("info", "Firing event '%s' (node = '%s', secret = '%s')", "incoming-push-to-"..settings["type"], settings["node"], settings["secret"]);
-	local success = module:fire_event("incoming-push-to-"..settings["type"], {origin = origin, settings = settings, stanza = stanza});
+	local success = module:fire_event("incoming-push-to-"..settings["type"], {origin = origin, settings = settings, summary = summary, stanza = stanza});
 	if success or success == nil then
 		module:log("error", "Push handler for type '%s' not executed successfully%s", settings["type"], type(success) == "string" and ": "..success or ": handler not found");
 		origin.send(st.error_reply(stanza, "wait", "internal-server-error", type(success) == "string" and success or "Internal error in push handler"));
