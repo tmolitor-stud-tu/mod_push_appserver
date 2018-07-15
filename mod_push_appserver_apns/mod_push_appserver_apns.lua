@@ -194,7 +194,7 @@ local function apns_handler(event)
 	local payload;
 	local priority = push_priority;
 	if push_priority == "auto" then
-		priority = summary["last-message-body"] ~= nil ? "high" : "silent";
+		priority = summary["last-message-body"] ~= nil and "high" or "silent";
 	end
 	if priority == "high" then
 		payload = '{"aps":{"alert":"'..push_alert..'","sound":"default"}}';
