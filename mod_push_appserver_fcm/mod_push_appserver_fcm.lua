@@ -8,9 +8,12 @@
 --
 
 -- imports
-local socket = require "socket";
+-- unlock prosody globals and allow ltn12 to pollute the global space
+-- this fixes issue #8 in prosody 0.11, see also https://issues.prosody.im/1033
+prosody.unlock_globals()
+require "ltn12";
+prosody.lock_globals()
 local https = require "ssl.https";
-local ltn12 = require "ltn12";
 local string = require "string";
 local t_remove = table.remove;
 local datetime = require "util.datetime";
@@ -33,12 +36,6 @@ local ciphers = module:get_option_string("push_appserver_fcm_ciphers",
 local push_ttl = module:get_option_number("push_appserver_fcm_push_ttl", nil);					--no ttl (equals 4 weeks)
 local push_priority = module:get_option_string("push_appserver_fcm_push_priority", "high");		--high priority pushes (can be "high" or "normal")
 local push_endpoint = "https://fcm.googleapis.com/fcm/send";
-
--- low level network functions
-local function socket_tcp()
-	local socket = socket.tcp();
-	
-end
 
 -- high level network (https) functions
 local function send_request(data)
