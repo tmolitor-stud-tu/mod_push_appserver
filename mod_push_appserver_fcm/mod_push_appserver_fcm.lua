@@ -12,8 +12,8 @@
 -- this fixes issue #8 in prosody 0.11, see also https://issues.prosody.im/1033
 prosody.unlock_globals()
 require "ltn12";
-prosody.lock_globals()
 local https = require "ssl.https";
+prosody.lock_globals()
 local string = require "string";
 local t_remove = table.remove;
 local datetime = require "util.datetime";
