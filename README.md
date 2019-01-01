@@ -30,7 +30,7 @@ Then add `mod_push_appserver` and the submodule you need (for example
 I will eventually add a commented minimal configuration example for prosody
 to this repository, too.
 
-## Usage notes
+## Usage notes (configuration)
 
 For chat apps using VoIP pushes to APNS, the priority should be set to `high`.
 The alert text can be ignored in this case (if you only want to wakeup your
@@ -42,66 +42,6 @@ For pushes to FCM the priorities `high` and `normal` are supported with `normal`
 priorities being delayed while the device is in doze mode.
 Pushes having priority `high` are always delivered, even in doze mode, thus
 should be used for chat apps.
-
-### XEP-0050 Ad-Hoc Command API
-This interface resembles more or less what Conversations is doing,
-but with some small differences:
-- the command is named "v1-register-push" instead of "register-push-gcm"
-- the device id field is called "node" instead of "device-id"
-- the new field "type" was added. This can be used to specify the push
-  type just as it is done using the http based API.
-
-[This Gist][5] demonstrates the changes needed to Conversations to use this appserver
-instead of inputmice's p2.
-
-See [XEP-0050][6] for more info regarding Ad-Hoc Commands.
-
-### HTTP API endpoints
-
-All `POST` endpoints can be used via `GET` to get back a simple html form which
-allows you to manually test the endpoint behaviour in your browser, if the config
-option `push_appserver_debugging` is set to true (an error is returned otherwise).
-
-- POST to `http://<host>:5280/push_appserver/v1/register` or
-  `https://<host>:5281/push_appserver/v1/register`  
-  POST data: `type=<push type>&node=<device uuid>&token=<apns/fcm/etc. push token>`  
-  function: register device for push  
-  result: text document separated by `\n`  
-  - first line: `OK`, everything else (including `ERROR`) is specified as error
-    condition
-    if ok: 2nd line: XEP-0357 push `node`, 3rd line: XEP-0357 push `secret`  
-    if error: 2nd and subsequent lines: error description
-
-- POST to `http://<host>:5280/push_appserver/v1/unregister` or
-  `https://<host>:5281/push_appserver/v1/unregister`  
-  POST data: `type=<push type>&node=<device uuid>`  
-  function: unregister device  
-  result: text document separated by `\n`  
-  - first line: `OK`, everything else (including `ERROR`) is specified as error
-    condition  
-    if ok: 2nd line: XEP-0357 push `node`, 3rd line: XEP-0357 push `secret`  
-    if error: 2nd and subsequent lines: error description
-
-- POST to `http://<host>:5280/push_appserver/v1/push` or
-  `https://<host>:5281/push_appserver/v1/push`  
-  POST data: `node=<device uuid>&secret=<secret obtained on register>`  
-  function: send push notification to device  
-  result: text document separated by `\n`  
-  - first line: `OK`, everything else (including `ERROR`) is specified as error
-    condition  
-    if ok: 2nd line: XEP-0357 push `node`  
-    if error: 2nd and subsequent lines: error description
-
-- GET to `http://<host>:5280/push_appserver/v1/settings` or
-  `https://<host>:5281/push_appserver/v1/settings`  
-  function: get list of registered device UUIDs  
-  result: html site listing all registered device UUIDS as links
-
-- GET to `http://<host>:5280/push_appserver/v1/settings/<device uuid>` or
-  `https://<host>:5281/push_appserver/v1/settings/<device uuid>`  
-  function: get internal data saved for this device UUID  
-  result: HTML site listing all data (serialized Lua table using penlight's
-  `pl.pretty`)
 
 ### Configuration options (mod\_push\_appserver)
 
@@ -163,6 +103,81 @@ option `push_appserver_debugging` is set to true (an error is returned otherwise
   Value `"high"` for high priority pushes that wake up the device even when
   in doze mode or `"normal"` for normal pushes that can be delayed.
   Default: `"high"`.
+
+## API (register device etc.)
+
+This appserver implements [XEP-0357][1] commands for sending actual push notifications.
+Additionally [XEP-0357][1] requires a device to be registered on the appserver but does
+not dictate how this should be done.
+
+**Therefore this appserver provides two different APIs to register a (new) device on the appserver.**
+**Just use the one more convenient to you.**
+
+### [XEP-0050][6] Ad-Hoc Command API
+
+This API resembles more or less what Conversations is doing,
+but with some small differences:
+- the command is named "v1-register-push" instead of "register-push-gcm"
+- the device id field is called "node" instead of "device-id"
+- the new field "type" was added. This can be used to specify the push
+  type just as it is done using the http based API.
+- You can only register the device using this API, no unregister possible (use the HTTP API for unregistering devices)
+
+[This Gist][5] demonstrates the changes needed to Conversations to use this appserver
+instead of inputmice's p2.
+See [XEP-0050][6] for more info regarding Ad-Hoc Commands in general.
+
+**Keep in mind that the registration command sent to this appserver is routed through the user's xmpp server.**
+**This exposes the raw APNS/FCM push token and device id to the user's xmpp server.**
+**Use the HTTP API if you don't like this.**
+
+### HTTP API
+
+All `POST` endpoints can be used via `GET` to get back a simple html form which
+allows you to manually test the endpoint behaviour in your browser, if the config
+option `push_appserver_debugging` is set to true (an error is returned otherwise).
+*This config option should be false in production environments!*
+
+- POST to `http://<host>:5280/push_appserver/v1/register` or
+  `https://<host>:5281/push_appserver/v1/register`  
+  POST data: `type=<push type>&node=<device uuid>&token=<apns/fcm/etc. push token>`  
+  function: register device for push  
+  result: text document separated by `\n`  
+  - first line: `OK`, everything else (including `ERROR`) is specified as error
+    condition
+    if ok: 2nd line: XEP-0357 push `node`, 3rd line: XEP-0357 push `secret`  
+    if error: 2nd and subsequent lines: error description
+
+- POST to `http://<host>:5280/push_appserver/v1/unregister` or
+  `https://<host>:5281/push_appserver/v1/unregister`  
+  POST data: `type=<push type>&node=<device uuid>`  
+  function: unregister device  
+  result: text document separated by `\n`  
+  - first line: `OK`, everything else (including `ERROR`) is specified as error
+    condition  
+    if ok: 2nd line: XEP-0357 push `node`, 3rd line: XEP-0357 push `secret`  
+    if error: 2nd and subsequent lines: error description
+
+- POST to `http://<host>:5280/push_appserver/v1/push` or
+  `https://<host>:5281/push_appserver/v1/push`  
+  POST data: `node=<device uuid>&secret=<secret obtained on register>`  
+  function: send push notification to device  
+  result: text document separated by `\n`  
+  - first line: `OK`, everything else (including `ERROR`) is specified as error
+    condition  
+    if ok: 2nd line: XEP-0357 push `node`  
+    if error: 2nd and subsequent lines: error description
+
+- GET to `http://<host>:5280/push_appserver/v1/settings` or
+  `https://<host>:5281/push_appserver/v1/settings`  
+  function: get list of registered device UUIDs  
+  result: html site listing all registered device UUIDS as links
+
+- GET to `http://<host>:5280/push_appserver/v1/settings/<device uuid>` or
+  `https://<host>:5281/push_appserver/v1/settings/<device uuid>`  
+  function: get internal data saved for this device UUID  
+  result: HTML site listing all data (serialized Lua table using penlight's
+  `pl.pretty`)
 
 ## Implementation notes
 
