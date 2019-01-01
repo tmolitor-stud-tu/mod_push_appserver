@@ -43,6 +43,19 @@ priorities being delayed while the device is in doze mode.
 Pushes having priority `high` are always delivered, even in doze mode, thus
 should be used for chat apps.
 
+### XEP-0050 Ad-Hoc Command API
+This interface resembles more or less what Conversations is doing,
+but with some small differences:
+- the command is named "v1-register-push" instead of "register-push-gcm"
+- the device id field is called "node" instead of "device-id"
+- the new field "type" was added. This can be used to specify the push
+  type just as it is done using the http based API.
+
+[This Gist][5] demonstrates the changes needed to Conversations to use this appserver
+instead of inputmice's p2.
+
+See [XEP-0050][6] for more info regarding Ad-Hoc Commands.
+
 ### HTTP API endpoints
 
 All `POST` endpoints can be used via `GET` to get back a simple html form which
@@ -206,3 +219,5 @@ Submodules (like mod\_push\_appserver\_apns) can trigger the event
 [2]: https://prosody.im/
 [3]: https://developer.apple.com/go/?id=push-notifications
 [4]: https://firebase.google.com/docs/cloud-messaging/
+[5]: https://gist.github.com/tmolitor-stud-tu/a1e877a7d75c07c2163c3ce1e0347881
+[6]: https://xmpp.org/extensions/xep-0050.html
