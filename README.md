@@ -13,7 +13,6 @@ module.
 
 - Prosody 0.9 or later.
 - Lua 5.1 (5.2 should also work, but is untested).
-- Installed penlight Lua library (Debian package: `lua-penlight`).
 - Installed luasec Lua library version 0.5 (Debian package: `lua-sec`), higher
   versions are untested.
  
