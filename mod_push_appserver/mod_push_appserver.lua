@@ -115,7 +115,8 @@ end
 
 local function get_html_form(...)
 	local html = '<form method="post"><table>\n';
-	for i,v in ipairs(arg) do
+	local fields = arg ~= nil and arg or {...}
+	for i,v in ipairs(fields) do
 		html = html..'<tr><td>'..tostring(v)..'</td><td><input type="text" name="'..tostring(v)..'" required></td></tr>\n';
 	end
 	html = html..'<tr><td>&nbsp;</td><td><button type="submit">send request</button></td></tr>\n</table></form>';
