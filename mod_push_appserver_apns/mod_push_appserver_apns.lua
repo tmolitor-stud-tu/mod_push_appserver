@@ -255,7 +255,7 @@ local function query_feedback_service()
 		local token = bin2hex(string.sub(feedback, 1, token_length));
 		module:log("info", "Got feedback service entry for token '%s' timestamped with '%s", token, datetime.datetime(timestamp));
 		
-		if not module:trigger("unregister-push-token", {token = token, type = "apns", timestamp = timestamp}) then
+		if not module:fire_event("unregister-push-token", {token = token, type = "apns", timestamp = timestamp}) then
 			module:log("warn", "Could not unregister push token");
 		end
 	until false;
