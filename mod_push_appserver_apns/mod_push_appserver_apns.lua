@@ -34,7 +34,7 @@ local push_ttl = module:get_option_number("push_appserver_apns_push_ttl", nil);	
 local push_priority = module:get_option_string("push_appserver_apns_push_priority", "silent");	--silent priority pushes
 local sandbox = module:get_option_boolean("push_appserver_apns_sandbox", true);					--use APNS sandbox
 local feedback_request_interval = module:get_option_number("push_appserver_apns_feedback_request_interval", 3600*24);	--24 hours
-local push_host = "localhost" --***sandbox and "gateway.sandbox.push.apple.com" or "gateway.push.apple.com";
+local push_host = sandbox and "gateway.sandbox.push.apple.com" or "gateway.push.apple.com";
 local push_port = 2195;
 local feedback_host = sandbox and "feedback.sandbox.push.apple.com" or "feedback.push.apple.com";
 local feedback_port = 2196;
@@ -51,7 +51,6 @@ local function stoppable_timer(delay, callback)		-- this function is needed for 
 		return callback(t);
 	end);
 	if timer["stop"] then return timer; end
-	module:log("debug", "Timer RETVAL: %s", tostring(retval));
 	return {
 		stop = function () stopped = true end;
 		timer;
@@ -156,7 +155,7 @@ local function init_connection(conn, host, port, timeout)
 	local params = {
 		mode = "client",
 		protocol = "tlsv1_2",
-		--***verify = {"peer", "fail_if_no_peer_cert"},
+		verify = {"peer", "fail_if_no_peer_cert"},
 		capath = capath,
 		ciphers = ciphers,
 		certificate = apns_cert,
@@ -173,7 +172,7 @@ local function init_connection(conn, host, port, timeout)
 	local success, err;
 	
 	if conn then conn:settimeout(0); success, err = conn:receive(0); conn:settimeout(timeout); end
-	module:log("debug", "conn=%s,success=%s, err=%s", tostring(conn), tostring(success), tostring(err));
+	--module:log("debug", "conn=%s,success=%s, err=%s", tostring(conn), tostring(success), tostring(err));
 	if conn and (err == "timeout" or err == "wantread" or err == nil) then module:log("debug", "already connected to apns: %s", tostring(err)); return conn; end		-- already connected
 	
 	-- init connection
@@ -237,7 +236,7 @@ local function apns_handler(event)
 			conn:settimeout(0.250);
 			local error_frame, err = conn:receive(6);
 			conn:settimeout(0);
-			module:log("debug", "error_frame: %s, err: %s", tostring(error_frame), tostring(err));
+			--module:log("debug", "error_frame: %s, err: %s", tostring(error_frame), tostring(err));
 			if err == "timeout" or err == "wantread" then return false; end		-- no error occured
 			if err then
 				module:log("error", "Could not receive data from APNS socket: %s", tostring(err));
