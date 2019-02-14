@@ -227,13 +227,15 @@ module:hook("iq/host", function(event)
 		return registerPush(stanza, origin);
 	end
 	
-	-- handle push and extract summary
+	-- handle push and extract summary if given
 	local publishNode = stanza:find("{http://jabber.org/protocol/pubsub}/publish");
 	if not publishNode then return; end
 	local summaryNode = publishNode:find("item/{urn:xmpp:push:0}notification/{jabber:x:data}");
-	if not summaryNode then return; end
-	local summary, errors = summary_form:data(summaryNode);
-	if errors then return sendError(origin, stanza); end
+	local summary, errors;
+	if summaryNode then
+		summary, errors = summary_form:data(summaryNode);
+		if errors then return sendError(origin, stanza); end
+	end
 	
 	-- push options and the secret therein are mandatory
 	local optionsNode = stanza:find("{http://jabber.org/protocol/pubsub}/publish-options/{jabber:x:data}");
@@ -258,17 +260,23 @@ module:hook("iq/host", function(event)
 		return true;
 	end
 	
-	module:log("info", "Firing event '%s' (node = '%s', secret = '%s')", "incoming-push-to-"..settings["type"], settings["node"], settings["secret"]);
-	local success = module:fire_event("incoming-push-to-"..settings["type"], {origin = origin, settings = settings, summary = summary, stanza = stanza});
-	if success or success == nil then
-		module:log("error", "Push handler for type '%s' not executed successfully%s", settings["type"], type(success) == "string" and ": "..success or ": handler not found");
-		origin.send(st.error_reply(stanza, "wait", "internal-server-error", type(success) == "string" and success or "Internal error in push handler"));
-		settings["last_push_error"] = datetime.datetime();
-	else
-		origin.send(st.reply(stanza));
-		settings["last_successful_push"] = datetime.datetime();
+	-- callback to handle synchronous and asynchronous iq responses
+	local async_callback = function(success)
+		if success or success == nil then
+			module:log("error", "Push handler for type '%s' not executed successfully%s", settings["type"], type(success) == "string" and ": "..success or ": handler not found");
+			origin.send(st.error_reply(stanza, "wait", "internal-server-error", type(success) == "string" and success or "Internal error in push handler"));
+			settings["last_push_error"] = datetime.datetime();
+		else
+			origin.send(st.reply(stanza));
+			settings["last_successful_push"] = datetime.datetime();
+		end
+		push_store:set(node, settings);
 	end
-	push_store:set(node, settings);
+	
+	module:log("info", "Firing event '%s' (node = '%s', secret = '%s')", "incoming-push-to-"..settings["type"], settings["node"], settings["secret"]);
+	local success = module:fire_event("incoming-push-to-"..settings["type"], {async_callback = async_callback, origin = origin, settings = settings, summary = summary, stanza = stanza});
+	-- true indicates handling via async_callback, everything else is synchronous and must be handled directly
+	if not (type(success) == "boolean" and success) then async_callback(success); end
 	return true;
 end);
 
