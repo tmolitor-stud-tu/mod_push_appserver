@@ -255,8 +255,8 @@ module:hook("iq/host", function(event)
 	-- throttling
 	local throttle = create_throttle(settings["node"]);
 	if not throttle:poll(1) then
-		module:log("warn", "Rate limit for node '%s' reached, ignoring push request (and returning 'OK')", settings["node"]);
-		origin.send(st.reply(stanza));
+		module:log("warn", "Rate limit for node '%s' reached, ignoring push request (and returning 'wait' error)", settings["node"]);
+		origin.send(st.error_reply(stanza, "wait", "resource-constraint", "Ratelimit reached"));
 		return true;
 	end
 	
@@ -390,8 +390,8 @@ local function serve_push_v1(event, path)
 	-- throttling
 	local throttle = create_throttle(node);
 	if not throttle:poll(1) then
-		module:log("warn", "Rate limit for node '%s' reached, ignoring push request (and returning 'OK')", node);
-		return "OK\n"..node;
+		module:log("warn", "Rate limit for node '%s' reached, ignoring push request (and returning error 'Ratelimit reached')", node);
+		return "ERROR\nRatelimit reached!";
 	end
 	
 	module:log("info", "Firing event '%s' (node = '%s', secret = '%s')", "incoming-push-to-"..settings["type"], node, secret);
