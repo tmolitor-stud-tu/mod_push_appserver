@@ -258,9 +258,10 @@ local function apns_handler(event)
 	else
 		-- register timer (use 2 seconds delay for timeout)
 		pending_pushes[id] = {async_callback = async_callback, timer = stoppable_timer(2, function()
+			module:log("debug", "Cleaning up push ID %s (timer timeout occured)...", tostring(id));
 			pending_pushes[id]["timer"]:stop();
-			pending_pushes[error_id]["async_callback"](false);		-- timeout --> no error occured
-			pending_pushes[error_id] = nil;
+			pending_pushes[id]["async_callback"](false);		-- timeout --> no error occured
+			pending_pushes[id] = nil;
 		end)};
 		
 		-- NOTES:
