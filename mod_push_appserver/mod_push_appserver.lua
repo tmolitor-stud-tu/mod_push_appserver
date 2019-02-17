@@ -215,7 +215,7 @@ local summary_form = dataform {
 };
 
 local options_form = dataform {
-	{ name = "FORM_TYPE"; value = "http://jabber.org/protocol/pubsub#publish-options"; };
+	{ name = "FORM_TYPE"; value = xmlns_pubsub.."#publish-options"; };
 	{ name = "secret"; type = "hidden"; required = true; };
 };
 
@@ -228,9 +228,9 @@ module:hook("iq/host", function(event)
 	end
 	
 	-- handle push and extract summary if given
-	local publishNode = stanza:find("{http://jabber.org/protocol/pubsub}/publish");
+	local publishNode = stanza:find("{"..xmlns_pubsub.."}/publish");
 	if not publishNode then return; end
-	local summaryNode = publishNode:find("item/{urn:xmpp:push:0}notification/{jabber:x:data}");
+	local summaryNode = publishNode:find("item/{"..xmlns_push.."}notification/{jabber:x:data}");
 	local summary, errors;
 	if summaryNode then
 		summary, errors = summary_form:data(summaryNode);
@@ -238,7 +238,7 @@ module:hook("iq/host", function(event)
 	end
 	
 	-- push options and the secret therein are mandatory
-	local optionsNode = stanza:find("{http://jabber.org/protocol/pubsub}/publish-options/{jabber:x:data}");
+	local optionsNode = stanza:find("{"..xmlns_pubsub.."}/publish-options/{jabber:x:data}");
 	if not optionsNode then return sendError(origin, stanza); end
 	local data, errors = options_form:data(optionsNode);
 	if errors then return sendError(origin, stanza); end
