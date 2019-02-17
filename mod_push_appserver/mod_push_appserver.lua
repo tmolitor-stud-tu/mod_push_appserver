@@ -245,7 +245,6 @@ module:hook("iq/host", function(event)
 	
 	local node = publishNode.attr.node;
 	local secret = data["secret"];
-	module:log("debug", "node: %s, secret: %s", tostring(node), tostring(secret));
 	if not node or not secret then return sendError(origin, stanza); end
 	
 	local settings = push_store:get(node);

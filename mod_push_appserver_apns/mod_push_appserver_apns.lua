@@ -19,6 +19,7 @@ local hashes = require "util.hashes";
 module:depends("push_appserver");
 
 -- configuration
+local test_environment = false;
 local apns_cert = module:get_option_string("push_appserver_apns_cert", nil);					--push certificate (no default)
 local apns_key = module:get_option_string("push_appserver_apns_key", nil);						--push certificate key (no default)
 local capath = module:get_option_string("push_appserver_apns_capath", "/etc/ssl/certs");		--ca path on debian systems
@@ -38,6 +39,7 @@ local push_host = sandbox and "gateway.sandbox.push.apple.com" or "gateway.push.
 local push_port = 2195;
 local feedback_host = sandbox and "feedback.sandbox.push.apple.com" or "feedback.push.apple.com";
 local feedback_port = 2196;
+if test_environment then push_host = "localhost"; end
 
 -- global state
 local conn = nil;
@@ -169,6 +171,7 @@ local function init_connection(conn, host, port, timeout)
 			"single_ecdh_use",
 		},
 	}
+	if test_environment then params["verify"] = nil; end
 	local success, err;
 	
 	if conn then conn:settimeout(0); success, err = conn:receive(0); conn:settimeout(timeout); end
@@ -223,6 +226,7 @@ local function apns_handler(event)
 	if not conn then return "Error connecting to APNS"; end				-- error occured
 	
 	-- send frame
+	module:log("debug", "sending out frame with id '%s'...", id);
 	success, err = conn:send(frame);
 	if success ~= string.len(frame) then
 		module:log("error", "Could not send data to APNS socket: %s", tostring(err));
