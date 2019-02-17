@@ -26,7 +26,7 @@ local string = string;
 -- configuration
 local body_size_limit = 4096; -- 4 KB
 local debugging = module:get_option_boolean("push_appserver_debugging", false);		-- debugging (should be false on production servers)
-local rate_limit = module:get_option_number("push_appserver_rate_limit", 5);		-- allow only one push in five seconds (try to mitigate DOS attacks)
+local rate_limit = module:get_option_number("push_appserver_rate_limit", 1);		-- allow only one push in one second (try to mitigate DOS attacks)
 
 -- global state
 local throttles = {}
@@ -262,7 +262,7 @@ module:hook("iq/host", function(event)
 	-- callback to handle synchronous and asynchronous iq responses
 	local async_callback = function(success)
 		if success or success == nil then
-			module:log("error", "Push handler for type '%s' not executed successfully%s", settings["type"], type(success) == "string" and ": "..success or ": handler not found");
+			module:log("warn", "Push handler for type '%s' not executed successfully%s", settings["type"], type(success) == "string" and ": "..success or ": handler not found");
 			origin.send(st.error_reply(stanza, "wait", "internal-server-error", type(success) == "string" and success or "Internal error in push handler"));
 			settings["last_push_error"] = datetime.datetime();
 		else
@@ -384,8 +384,6 @@ local function serve_push_v1(event, path)
 		return "ERROR\nNode or secret not found!";
 	end
 	
-	local response = "ERROR\nInternal server error!";
-	
 	-- throttling
 	local throttle = create_throttle(node);
 	if not throttle:poll(1) then
@@ -393,18 +391,23 @@ local function serve_push_v1(event, path)
 		return "ERROR\nRatelimit reached!";
 	end
 	
-	module:log("info", "Firing event '%s' (node = '%s', secret = '%s')", "incoming-push-to-"..settings["type"], node, secret);
-	local success = module:fire_event("incoming-push-to-"..settings["type"], {origin = nil, settings = settings, stanza = nil});
-	if success or success == nil then
-		module:log("error", "Push handler for type '%s' not executed successfully%s", settings["type"], type(success) == "string" and ": "..success or "");
-		settings["last_push_error"] = datetime.datetime();
-	else
-		settings["last_successful_push"] = datetime.datetime();
-		response = "OK\n"..node;
+	local async_callback = function(success)
+		if success or success == nil then
+			module:log("warn", "Push handler for type '%s' not executed successfully%s", settings["type"], type(success) == "string" and ": "..success or ": handler not found");
+			settings["last_push_error"] = datetime.datetime();
+			event.response:send("ERROR\n"..(type(success) == "string" and success or "Internal error in push handler"));
+		else
+			settings["last_successful_push"] = datetime.datetime();
+			event.response:send("OK\n"..node);
+		end
+		push_store:set(node, settings);
 	end
-	push_store:set(node, settings);
-	module:log("debug", "settings: %s", pretty.write(settings));
-	return response;
+	module:log("info", "Firing event '%s' (node = '%s', secret = '%s')", "incoming-push-to-"..settings["type"], settings["node"], settings["secret"]);
+	local success = module:fire_event("incoming-push-to-"..settings["type"], {async_callback = async_callback, settings = settings});
+	-- true indicates handling via async_callback, everything else is synchronous and must be handled directly
+	if not (type(success) == "boolean" and success) then async_callback(success); end
+	
+	return true;		-- keep connection open until async_callback is called
 end
 
 local function serve_push_form_v1(event, path)

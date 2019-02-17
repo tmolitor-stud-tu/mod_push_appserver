@@ -19,7 +19,7 @@ local hashes = require "util.hashes";
 module:depends("push_appserver");
 
 -- configuration
-local test_environment = false;
+local test_environment = true;
 local apns_cert = module:get_option_string("push_appserver_apns_cert", nil);					--push certificate (no default)
 local apns_key = module:get_option_string("push_appserver_apns_key", nil);						--push certificate key (no default)
 local capath = module:get_option_string("push_appserver_apns_capath", "/etc/ssl/certs");		--ca path on debian systems
@@ -43,7 +43,8 @@ if test_environment then push_host = "localhost"; end
 
 -- global state
 local conn = nil;
-local pending_pushes = {}
+local pending_pushes = {};
+local ordered_push_ids = {};
 
 -- general utility functions
 local function stoppable_timer(delay, callback)		-- this function is needed for compatibility with prosody <= 0.10
@@ -57,6 +58,18 @@ local function stoppable_timer(delay, callback)		-- this function is needed for 
 		stop = function () stopped = true end;
 		timer;
 	};
+end
+
+-- small helper function to return new table with only "maximum" elements containing only the newest entries
+local function reduce_table(table, maximum)
+	local count = 0;
+	local result = {};
+	for key, value in orderedPairs(table) do
+		count = count + 1;
+		if count > maximum then break end
+		result[key] = value;
+	end
+	return result;
 end
 
 -- utility functions for binary manipulations
@@ -153,7 +166,7 @@ local function extract_error(error_frame)
 end
 
 -- network functions
-local function init_connection(conn, host, port, timeout)
+local function init_connection(conn, host, port)
 	local params = {
 		mode = "client",
 		protocol = "tlsv1_2",
@@ -174,7 +187,7 @@ local function init_connection(conn, host, port, timeout)
 	if test_environment then params["verify"] = nil; end
 	local success, err;
 	
-	if conn then conn:settimeout(0); success, err = conn:receive(0); conn:settimeout(timeout); end
+	if conn then success, err = conn:receive(0); end
 	--module:log("debug", "conn=%s,success=%s, err=%s", tostring(conn), tostring(success), tostring(err));
 	if conn and (err == "timeout" or err == "wantread" or err == nil) then module:log("debug", "already connected to apns: %s", tostring(err)); return conn; end		-- already connected
 	
@@ -190,7 +203,7 @@ local function init_connection(conn, host, port, timeout)
 	if not conn then module:log("error", "Could not tls-wrap APNS socket: %s", tostring(err)); return nil; end
 	success, err = conn:dohandshake();
 	if not success then module:log("error", "Could not negotiate TLS encryption with APNS: %s", tostring(err)); return nil; end
-	conn:settimeout(timeout);
+	conn:settimeout(0);		-- zero timeout allows for a maximum of pushes per second
 	
 	module:log("debug", "connection established successfully");
 	return conn;
@@ -199,8 +212,21 @@ local function close_connection(conn)
 	if conn then conn:close(); end
 	return nil;
 end
-function sleep(sec)
+local function sleep(sec)
     socket.select(nil, nil, sec)
+end
+local function receive_error()
+	local error_frame, err = conn:receive(6);
+	if err == "timeout" or err == "wantread" then return false; end		-- no error occured yet
+	if err then
+		module:log("warn", "Could not receive data from APNS socket: %s", tostring(err));
+		return true;
+	end
+	local status, error_id = extract_error(error_frame);
+	module:log("warn", "Got error for ID '%s': %s", tostring(error_id), tostring(status));
+	-- call receive_error() again to wait for pending socket close (apns closes the socket immediately after sending the error frame)
+	while not receive_error() do; sleep(0.01); end
+	return error_id, status;
 end
 
 -- handlers
@@ -222,87 +248,72 @@ local function apns_handler(event)
 	end
 	local frame, id = create_frame(settings["token"], payload, push_ttl, priority);
 	
-	conn = init_connection(conn, push_host, push_port, 0);		-- zero timeout allows for a maximum of pushes per second
-	if not conn then return "Error connecting to APNS"; end				-- error occured
+	conn = init_connection(conn, push_host, push_port);
+	if not conn then return "Error connecting to APNS"; end		-- error occured
+	
+	-- register timer (use 2 seconds delay for timeout)
+	-- NOTE:
+	-- APNS pushes are pipelined. If one push triggers an error, APNS returns an error frame and closes the connection.
+	-- All pushes pipelined *after* the unsuccessful push are lost and have to be retried.
+	-- All pushes pipelined *before* the unsuccessful push where successful.
+	pending_pushes[id] = {event = event, timer = stoppable_timer(2, function()
+		local error, status = receive_error(0);		-- don't wait, just try to receive already pending errors
+		local repush = {};
+		if type(error) == "boolean" and not error then		-- no error
+			module:log("debug", "Cleaning up successful push ID %s (timer triggered)...", tostring(id));
+			pending_pushes[id]["timer"]:stop();
+			pending_pushes[id]["event"].async_callback(false);		-- timeout --> no error occured
+			pending_pushes[id] = nil;
+			-- remove this id from odered_push_ids table, too
+			for i, push_id in ipairs(ordered_push_ids) do
+				if push_id == id then table.remove(ordered_push_ids, i); break; end
+			end
+		elseif type(error) == "boolean" and error then		-- read error
+			module:log("warn", "APNS read error --> resending *all* pending pushes...");
+			repush = pending_pushes;		-- resend all
+			-- clear all pending pushes
+			pending_pushes = {};
+			ordered_push_ids = {};
+		elseif type(error) ~= "boolean" then				-- error frame (error contains push id)
+			module:log("warn", "APNS push error for ID '%s' --> resending all following pushes...", error);
+			local error_id_found = false;
+			for i, push_id in ipairs(ordered_push_ids) do
+				module:log("debug", "Queue entry %d: %s", i, tostring(push_id))
+				pending_pushes[push_id]["timer"]:stop();
+				if push_id == error then			-- this push had an error
+					error_id_found = true;
+					pending_pushes[push_id]["event"].async_callback("APNS error: "..tostring(status));	-- --> an error occured
+				elseif not error_id_found then		-- every push *before* this error was successfull
+					module:log("debug", "Cleaning up successful push ID %s (error triggered)...", tostring(push_id));
+					pending_pushes[push_id]["event"].async_callback(false);		-- --> no error occured
+				else							-- every push *after* this error has to be resent
+					repush[push_id] = pending_pushes[push_id];		-- add to resend queue
+				end
+			end
+			-- clear all pending pushes
+			pending_pushes = {};
+			ordered_push_ids = {};
+		end
+		-- resend queued pushes after 100ms delay
+		stoppable_timer(0.1, function()
+			for push_id, push_table in pairs(repush) do
+				local retval = apns_handler(push_table["event"]);
+				if type(retval) ~= "boolean" or not retval then
+					push_table["event"].async_callback("REpush error: "..tostring(retval));		-- --> a synchronous error occured
+				end
+			end
+		end)
+	end)};
+	table.insert(ordered_push_ids, id)
 	
 	-- send frame
 	module:log("debug", "sending out frame with id '%s'...", id);
-	success, err = conn:send(frame);
+	local success, err = conn:send(frame);
 	if success ~= string.len(frame) then
-		module:log("error", "Could not send data to APNS socket: %s", tostring(err));
-		return "Error communicating with APNS (send)";
+		module:log("warn", "Could not send data to APNS socket: %s (will retry in timer)", tostring(err));
 	end
 	
-	-- handle synchronous requests (HTTP API, used for debugging)
-	if async_callback == nil then
-		-- get status, use a timeout for synchronous requests (those containing no async_callback)
-		while true do	-- loop ends if no data is left (or on various error conditions)
-			conn:settimeout(0.250);
-			local error_frame, err = conn:receive(6);
-			conn:settimeout(0);
-			--module:log("debug", "error_frame: %s, err: %s", tostring(error_frame), tostring(err));
-			if err == "timeout" or err == "wantread" then return false; end		-- no error occured
-			if err then
-				module:log("error", "Could not receive data from APNS socket: %s", tostring(err));
-				module:log("error", "Sending out error responses for all pending pushes: ")
-				for push_id, push_table in pairs(pending_pushes) do
-					module:log("error", "Sending error for ID '%s'...", tostring(push_id))
-					push_table["timer"]:stop();
-					push_table["async_callback"]("Push queue error");		-- --> an error occured
-				end
-				pending_pushes = {};		-- clear all pending pushes
-				return "Error communicating with APNS (receive)";
-			end
-			local status, error_id = extract_error(error_frame);
-			module:log("warn", "Got error for ID '%s': %s", tostring(error_id), tostring(status));
-			-- error will returned by apns connection close following directly after this error frame
-			if error_id == id then module:log("warn", "ID matches our last push, awaiting connection close by APNS..."); end
-		end
-	-- handle asynchronous requests (real pushes coming in via iq request)
-	else
-		-- register timer (use 2 seconds delay for timeout)
-		pending_pushes[id] = {async_callback = async_callback, timer = stoppable_timer(2, function()
-			module:log("debug", "Cleaning up push ID %s (timer timeout occured)...", tostring(id));
-			pending_pushes[id]["timer"]:stop();
-			pending_pushes[id]["async_callback"](false);		-- timeout --> no error occured
-			pending_pushes[id] = nil;
-		end)};
-		
-		-- NOTES:
-		-- APNS pushes are pipelined. If one push triggers an error, APNS returns an error frame and closes the connection.
-		-- All pushes pipelined *after* the unsuccessful push are lost and have to be retried.
-		-- All pushes pipelined *before* the unsuccessful push where successful.
-		-- Those errors seem to be infrequent enough to simplify the implementation:
-		-- On connection close the whole pipeline will be considered as failed (even the ones coming before the failed push)
-		-- and no push is retried. iq-wait errors will be returned for all those pushes
-		
-		-- get status
-		while true do	-- loop ends if no data is left (or on various error conditions)
-			local error_frame, err = conn:receive(6);
-			if err == "timeout" or err == "wantread" then return true; end		-- no error occured yet(!), signal the use of use async iq responses
-			if err then
-				pending_pushes[id] = nil;	-- returning synchronous error below, no need to also return an asynchronous error
-				module:log("error", "Could not receive data from APNS socket: %s", tostring(err));
-				module:log("error", "Sending out error responses for all pending pushes: ")
-				for push_id, push_table in pairs(pending_pushes) do
-					module:log("error", "Sending error for ID '%s'...", tostring(push_id))
-					push_table["timer"]:stop();
-					push_table["async_callback"]("Push queue error");		-- --> an error occured
-				end
-				pending_pushes = {};		-- clear all pending pushes
-				return "Error communicating with APNS (receive)";
-			end
-			
-			local status, error_id = extract_error(error_frame);
-			module:log("warn", "Got error for ID '%s': %s", tostring(error_id), tostring(status));
-			if pending_pushes[error_id] ~= nil then
-				pending_pushes[error_id]["timer"]:stop();
-				pending_pushes[error_id]["async_callback"](tostring(status));		-- --> an error occured
-				pending_pushes[error_id] = nil;
-			end
-		end
-	end
-	
+	return true;		-- signal the use of use async iq responses
 end
 
 -- timers
