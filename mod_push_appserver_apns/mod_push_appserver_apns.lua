@@ -256,7 +256,7 @@ local function apns_handler(event)
 	-- APNS pushes are pipelined. If one push triggers an error, APNS returns an error frame and closes the connection.
 	-- All pushes pipelined *after* the unsuccessful push are lost and have to be retried.
 	-- All pushes pipelined *before* the unsuccessful push where successful.
-	pending_pushes[id] = {event = event, timer = stoppable_timer(2, function()
+	pending_pushes[id] = {event = event, timer = stoppable_timer(15, function()
 		local error, status = receive_error(0);		-- don't wait, just try to receive already pending errors
 		local repush = {};
 		if type(error) == "boolean" and not error then		-- no error
@@ -271,6 +271,10 @@ local function apns_handler(event)
 		elseif type(error) == "boolean" and error then		-- read error
 			module:log("warn", "APNS read error --> resending *all* pending pushes...");
 			repush = pending_pushes;		-- resend all
+			-- stop all timers (we need new ones for resending pushes)
+			for push_id, push_table in pairs(pending_pushes) do
+				push_table["timer"]:stop();
+			end
 			-- clear all pending pushes
 			pending_pushes = {};
 			ordered_push_ids = {};
