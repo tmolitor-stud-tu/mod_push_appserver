@@ -19,7 +19,7 @@ local hashes = require "util.hashes";
 module:depends("push_appserver");
 
 -- configuration
-local test_environment = true;
+local test_environment = false;
 local apns_cert = module:get_option_string("push_appserver_apns_cert", nil);					--push certificate (no default)
 local apns_key = module:get_option_string("push_appserver_apns_key", nil);						--push certificate key (no default)
 local capath = module:get_option_string("push_appserver_apns_capath", "/etc/ssl/certs");		--ca path on debian systems
@@ -225,7 +225,7 @@ local function receive_error()
 	local status, error_id = extract_error(error_frame);
 	module:log("warn", "Got error for ID '%s': %s", tostring(error_id), tostring(status));
 	-- call receive_error() again to wait for pending socket close (apns closes the socket immediately after sending the error frame)
-	while not receive_error() do; sleep(0.01); end
+	while not receive_error() do sleep(0.01); end
 	return error_id, status;
 end
 
