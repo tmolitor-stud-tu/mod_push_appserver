@@ -12,7 +12,7 @@ module.
 ## Requirements
 
 - Prosody 0.9 or later.
-- Lua 5.1 (5.2 should also work, but is untested).
+- Lua 5.1 or 5.2.
 - Installed luasec Lua library version 0.5 (Debian package: `lua-sec`), higher
   versions are untested.
  
