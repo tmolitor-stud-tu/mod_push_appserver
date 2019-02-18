@@ -219,11 +219,11 @@ local function receive_error()
 	local error_frame, err = conn:receive(6);
 	if err == "timeout" or err == "wantread" then return false; end		-- no error occured yet
 	if err then
-		module:log("warn", "Could not receive data from APNS socket: %s", tostring(err));
+		module:log("error", "Could not receive data from APNS socket: %s", tostring(err));
 		return true;
 	end
 	local status, error_id = extract_error(error_frame);
-	module:log("warn", "Got error for ID '%s': %s", tostring(error_id), tostring(status));
+	module:log("error", "Got error for ID '%s': %s", tostring(error_id), tostring(status));
 	-- call receive_error() again to wait for pending socket close (apns closes the socket immediately after sending the error frame)
 	while not receive_error() do sleep(0.01); end
 	return error_id, status;
@@ -260,7 +260,7 @@ local function apns_handler(event)
 		local error, status = receive_error(0);		-- don't wait, just try to receive already pending errors
 		local repush = {};
 		if type(error) == "boolean" and not error then		-- no error
-			module:log("debug", "Cleaning up successful push ID %s (timer triggered)...", tostring(id));
+			module:log("error", "Cleaning up successful push ID %s (timer triggered)...", tostring(id));
 			pending_pushes[id]["timer"]:stop();
 			pending_pushes[id]["event"].async_callback(false);		-- timeout --> no error occured
 			pending_pushes[id] = nil;
@@ -269,7 +269,7 @@ local function apns_handler(event)
 				if push_id == id then table.remove(ordered_push_ids, i); break; end
 			end
 		elseif type(error) == "boolean" and error then		-- read error
-			module:log("warn", "APNS read error --> resending *all* pending pushes...");
+			module:log("error", "APNS read error --> resending *all* pending pushes...");
 			repush = pending_pushes;		-- resend all
 			-- stop all timers (we need new ones for resending pushes)
 			for push_id, push_table in pairs(pending_pushes) do
@@ -279,16 +279,16 @@ local function apns_handler(event)
 			pending_pushes = {};
 			ordered_push_ids = {};
 		elseif type(error) ~= "boolean" then				-- error frame (error contains push id)
-			module:log("warn", "APNS push error for ID '%s' --> resending all following pushes...", error);
+			module:log("error", "APNS push error for ID '%s' --> resending all following pushes...", error);
 			local error_id_found = false;
 			for i, push_id in ipairs(ordered_push_ids) do
-				module:log("debug", "Queue entry %d: %s", i, tostring(push_id))
+				module:log("error", "Queue entry %d: %s", i, tostring(push_id))
 				pending_pushes[push_id]["timer"]:stop();
 				if push_id == error then			-- this push had an error
 					error_id_found = true;
 					pending_pushes[push_id]["event"].async_callback("APNS error: "..tostring(status));	-- --> an error occured
 				elseif not error_id_found then		-- every push *before* this error was successfull
-					module:log("debug", "Cleaning up successful push ID %s (error triggered)...", tostring(push_id));
+					module:log("error", "Cleaning up successful push ID %s (error triggered)...", tostring(push_id));
 					pending_pushes[push_id]["event"].async_callback(false);		-- --> no error occured
 				else							-- every push *after* this error has to be resent
 					repush[push_id] = pending_pushes[push_id];		-- add to resend queue
