@@ -53,7 +53,7 @@ local function stoppable_timer(delay, callback)		-- this function is needed for 
 		if stopped then return; end
 		return callback(t);
 	end);
-	if timer["stop"] then return timer; end
+	if timer and timer["stop"] then return timer; end
 	return {
 		stop = function () stopped = true end;
 		timer;
@@ -283,7 +283,7 @@ local function apns_handler(event)
 			local error_id_found = false;
 			for i, push_id in ipairs(ordered_push_ids) do
 				module:log("error", "Queue entry %d: %s", i, tostring(push_id))
-				pending_pushes[push_id]["timer"]:stop();
+				pending_pushes[push_id]["timer"]:stop();	-- stop all timers (we need new ones for resending pushes)
 				if push_id == error then			-- this push had an error
 					error_id_found = true;
 					pending_pushes[push_id]["event"].async_callback("APNS error: "..tostring(status));	-- --> an error occured
