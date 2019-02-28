@@ -49,7 +49,7 @@ should be used for chat apps.
   This setting will also make http forms available at all `POST` HTTP endpoints
   for easier manual testing of your setup by simply using your browser of choice.
 - **push\_appserver\_rate\_limit** *(number)*  
-  Allow one request per this much seconds. Default: 5 (e.g. one request every 5 seconds).  
+  Allow this much requests per second. Default: 5.  
   This should mitigate some DOS attacks.
 
 ### Configuration options (mod\_push\_appserver\_apns)

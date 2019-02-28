@@ -26,7 +26,7 @@ local string = string;
 -- configuration
 local body_size_limit = 4096; -- 4 KB
 local debugging = module:get_option_boolean("push_appserver_debugging", false);		-- debugging (should be false on production servers)
-local rate_limit = module:get_option_number("push_appserver_rate_limit", 1);		-- allow only one push in one second (try to mitigate DOS attacks)
+local rate_limit = module:get_option_number("push_appserver_rate_limit", 5);		-- allow only five pushes per second (try to mitigate DOS attacks)
 
 -- global state
 local throttles = {}
@@ -100,7 +100,7 @@ end)();
 -- throttling (try to prevent denial of service attacks)
 local function create_throttle(node)
 	if not throttles[node] then
-		throttles[node] = t.create(1, rate_limit);
+		throttles[node] = t.create(rate_limit, 1);
 	end
 	return throttles[node];
 end
