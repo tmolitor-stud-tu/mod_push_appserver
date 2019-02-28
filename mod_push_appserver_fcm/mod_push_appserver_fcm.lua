@@ -94,7 +94,7 @@ local function fcm_handler(event)
 	module:log("debug", "response status code: %s, raw response body: %s", tostring(status_code), response);
 	
 	if status_code ~= 200 then
-		local fcm_error;
+		local fcm_error = "Unknown FCM error.";
 		if status_code == 400 then fcm_error="Invalid JSON or unknown fields."; end
 		if status_code == 401 then fcm_error="There was an error authenticating the sender account."; end
 		if status_code >= 500 and status_code < 600 then fcm_error="Internal server error, please retry again later."; end
