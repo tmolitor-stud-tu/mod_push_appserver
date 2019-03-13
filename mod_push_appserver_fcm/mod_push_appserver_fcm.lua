@@ -112,6 +112,13 @@ local function fcm_handler(event)
 			if result.error and #result.error then
 				module:log("error", "Got FCM error:", result.error);
 				fcm_error = tostring(result.error);		-- return last error to mod_push_appserver
+				if result.error == "NotRegistered" then
+					-- add unregister token to prosody event queue
+					module:add_timer(1e-06, function()
+						module:log("warn", "Unregistering failing FCM token %s", tostring(settings["token"]))
+						module:fire_event("unregister-push-token", {token = tostring(settings["token"]), type = "fcm"})
+					end
+				end
 			end
 		end
 		return fcm_error;
