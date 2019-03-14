@@ -117,7 +117,7 @@ local function fcm_handler(event)
 					module:add_timer(1e-06, function()
 						module:log("warn", "Unregistering failing FCM token %s", tostring(settings["token"]))
 						module:fire_event("unregister-push-token", {token = tostring(settings["token"]), type = "fcm"})
-					end
+					end)
 				end
 			end
 		end
