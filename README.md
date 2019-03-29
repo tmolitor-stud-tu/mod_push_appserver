@@ -15,7 +15,13 @@ module.
 - Lua 5.1 or 5.2.
 - Installed luasec Lua library version 0.5 (Debian package: `lua-sec`), higher
   versions are untested.
- 
+
+Please note that you **cannot** have `mod_pubsub` module enabled at
+the same time in the same `VirtualHost` you enable
+`mod_push_appserver`.  Doing so will result in prosody randomly
+picking up one of both modules to handle `iq/host` PubSub events,
+leading to malfunction.
+
 ## Installation
 
 Just check out the repository somewhere and point prosody at this directory
