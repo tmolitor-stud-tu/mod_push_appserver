@@ -227,9 +227,12 @@ module:hook("iq/host", function(event)
 		return registerPush(stanza, origin);
 	end
 	
-	-- handle push and extract summary if given
+	-- handle push:
 	local publishNode = stanza:find("{"..xmlns_pubsub.."}/publish");
 	if not publishNode then return; end
+	-- only handle real pushes and let mod_pubsub handle all other cases
+	if not publishNode:find("item/{"..xmlns_push.."}notification") then return; end
+	-- extract summary if given
 	local summaryNode = publishNode:find("item/{"..xmlns_push.."}notification/{jabber:x:data}");
 	local summary, errors;
 	if summaryNode then
