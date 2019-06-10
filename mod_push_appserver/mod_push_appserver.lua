@@ -108,7 +108,7 @@ end
 -- html helper
 local function html_skeleton()
 	local header, footer;
-	header = "<!DOCTYPE html>\n<html><head><title>mod_"..module.name.." settings</title></head><body>\n";
+	header = "<!DOCTYPE html>\n<html><head><title>mod_"..module.name.."</title></head><body>\n";
 	footer = "\n</body></html>";
 	return header, footer;
 end
@@ -436,6 +436,12 @@ local function serve_settings_v1(event, path)
 	return output..'<a href="../settings">Back to List</a><br>\n<pre>'..pretty.write(settings).."</pre>"..footer;
 end
 
+local function serve_health_v1(event, path)
+	local header, footer = html_skeleton();
+	event.response.headers.content_type = "text/html;charset=utf-8";
+	return header.."RUNNING"..footer;
+end
+
 module:provides("http", {
 	route = {
 		["GET"] = serve_hello;
@@ -451,6 +457,7 @@ module:provides("http", {
 		["POST /v1/push"] = serve_push_v1;
 		["GET /v1/settings"] = serve_settings_v1;
 		["GET /v1/settings/*"] = serve_settings_v1;
+		["GET /v1/health"] = serve_health_v1;
 	};
 });
 
