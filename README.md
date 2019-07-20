@@ -178,6 +178,12 @@ option `push_appserver_debugging` is set to true (an error is returned otherwise
   result: HTML site listing all data (serialized Lua table using penlight's
   `pl.pretty`)
 
+- GET to `http://<host>:5280/push_appserver/v1/health` or
+  `https://<host>:5281/push_appserver/v1/health`  
+  function: get health status of module  
+  result: html site containing the word `RUNNING` if the module is loaded properly
+  (this GET-node is accessible even when `push_appserver_debugging` is set to `false`)
+
 ## Implementation notes
 
 mod\_push\_appserver and its submodules use events to communicate with each
