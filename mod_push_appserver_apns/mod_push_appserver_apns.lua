@@ -30,9 +30,9 @@ local ciphers = module:get_option_string("push_appserver_apns_ciphers",
 	"ECDHE-ECDSA-AES128-GCM-SHA256:"..
 	"AES256-SHA"	-- apparently this is needed for the old binary apns endpoint
 );	--supported ciphers
-local push_alert = module:get_option_string("push_appserver_apns_push_alert", "dummy");			--dummy alert text
+local mutable_content = module:get_option_number("push_appserver_apns_mutable_content", true);	--flag high prio pushes as mutable content
 local push_ttl = module:get_option_number("push_appserver_apns_push_ttl", nil);					--no ttl
-local push_priority = module:get_option_string("push_appserver_apns_push_priority", "silent");	--silent priority pushes
+local push_priority = module:get_option_string("push_appserver_apns_push_priority", "auto");	--automatically decide push priority
 local sandbox = module:get_option_boolean("push_appserver_apns_sandbox", true);					--use APNS sandbox
 local feedback_request_interval = module:get_option_number("push_appserver_apns_feedback_request_interval", 3600*24);	--24 hours
 local push_host = sandbox and "gateway.sandbox.push.apple.com" or "gateway.push.apple.com";
@@ -242,7 +242,7 @@ local function apns_handler(event)
 		priority = (summary and summary["last-message-body"] ~= nil) and "high" or "silent";
 	end
 	if priority == "high" then
-		payload = '{"aps":{"alert":"'..push_alert..'","sound":"default"}}';
+		payload = '{"aps":{'.(mutable_content and '"mutable-content":"1",' or '').'"alert":["title": "dummy", "body": "dummy"],"sound":"default"}}';
 	else
 		payload = '{"aps":{"content-available":1}}';
 	end

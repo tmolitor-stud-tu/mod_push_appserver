@@ -67,8 +67,9 @@ should be used for chat apps.
 - **push\_appserver\_apns\_sandbox** *(boolean)*
   Use apns sandbox api endpoint if `true`, production endpoint otherwise.
   Default: `true`.
-- **push\_appserver\_apns\_push\_alert** *(string)*  
-  Alert text for push message. Default: `"dummy"`.
+- **push\_appserver\_apns\_mutable\_content** *(boolean)*  
+  Mark high prio pushes as mutable content (only useful if `push_appserver_apns_push_priority` is set to
+  `"high"` or `"auto"`. Default: `true`.
 - **push\_appserver\_apns\_push\_ttl** *(number)*  
   TTL for push notification in seconds. Default: `nil` (that means infinite).
 - **push\_appserver\_apns\_push\_priority** *(string)*  
@@ -76,11 +77,14 @@ should be used for chat apps.
   `"silent"` for silent pushes that can be delayed or not delivered at all but don't trigger
   a visual indication and `"auto"` to let the appserver automatically decide between `"high"` and `"silent"`
   based on the presence of `"last-message-body"` in the push summary received from the XMPP server.
-  **NOTE**: if you have VoIP capabilities in your app `"silent"` pushes will become reliable and always
+  **NOTE 1 (iOS >= 13):** Apple decided for iOS >= 13 to not allow silent voip pushes anymore. Use `"high"` or `"auto"` on
+  this systems and set `push_appserver_apns_push_priority` to `true`. Then use `Notification Service Extension` in your app
+  to receive the actual content and replace the notification with a useful one before it hits the screen.
+  **NOTE 2 (iOS >= 10 and < 13):** if you have VoIP capabilities in your app `"silent"` pushes will become reliable and always
   wake up your app without triggering any visual indications on the user's phone.
   In VoIP mode your app can decide all by itself if it wants to show a notification to the user or not
   by simply logging into the XMPP account in the backround and retrieving the stanzas that triggered the push.
-  Default: `"silent"`.
+  Default: `"auto"`.
 - **push\_appserver\_apns\_feedback\_request\_interval** *(number)*  
   Interval in seconds to query Apple's feedback service for extinction of
   invalid tokens. Default: 24 hours.
