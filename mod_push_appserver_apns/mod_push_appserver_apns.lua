@@ -242,7 +242,7 @@ local function apns_handler(event)
 		priority = (summary and summary["last-message-body"] ~= nil) and "high" or "silent";
 	end
 	if priority == "high" then
-		payload = '{"aps":{'.(mutable_content and '"mutable-content":"1",' or '').'"alert":["title": "dummy", "body": "dummy"],"sound":"default"}}';
+		payload = '{"aps":{'..(mutable_content and '"mutable-content":"1",' or '')..'"alert":["title": "dummy", "body": "dummy"],"sound":"default"}}';
 	else
 		payload = '{"aps":{"content-available":1}}';
 	end
