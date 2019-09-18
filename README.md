@@ -76,15 +76,15 @@ should be used for chat apps.
   Value `"high"` for high priority pushes always triggering a visual indication on the user's phone,
   `"silent"` for silent pushes that can be delayed or not delivered at all but don't trigger
   a visual indication and `"auto"` to let the appserver automatically decide between `"high"` and `"silent"`
-  based on the presence of `"last-message-body"` in the push summary received from the XMPP server.
+  based on the presence of `"last-message-body"` in the push summary received from the XMPP server. Default: `"auto"`.  
   **NOTE 1 (iOS >= 13):** Apple decided for iOS >= 13 to not allow silent voip pushes anymore. Use `"high"` or `"auto"` on
   this systems and set `push_appserver_apns_push_priority` to `true`. Then use `Notification Service Extension` in your app
-  to receive the actual content and replace the notification with a useful one before it hits the screen.
+  to log in into your XMPP account in the background, retrieve the acutal stanzas and replace the notification with a useful
+  one before the dummy notification sent by the appserver hits the screen.  
   **NOTE 2 (iOS >= 10 and < 13):** if you have VoIP capabilities in your app `"silent"` pushes will become reliable and always
   wake up your app without triggering any visual indications on the user's phone.
   In VoIP mode your app can decide all by itself if it wants to show a notification to the user or not
   by simply logging into the XMPP account in the backround and retrieving the stanzas that triggered the push.
-  Default: `"auto"`.
 - **push\_appserver\_apns\_feedback\_request\_interval** *(number)*  
   Interval in seconds to query Apple's feedback service for extinction of
   invalid tokens. Default: 24 hours.
