@@ -8,8 +8,9 @@
 --
 
 -- imports
+package.path = module:get_directory().."/?.lua;"..package.path;		-- add module path to lua search path (needed for pl)
+local pretty = require("pl.pretty")
 local os = require "os";
-local pretty = require "pl.pretty";
 local http = require "net.http";
 local hashes = require "util.hashes";
 local datetime = require "util.datetime";
