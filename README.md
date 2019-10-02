@@ -175,7 +175,7 @@ Example XMPP flow for registering a device:
 </iq>
 
 <iq to="user@example.com/res1" from="push.example.org" type="result" id="MyID-6465">
-	<command xmlns="http://jabber.org/protocol/commands" status="complete" node="v1-register-push" sessionid="1559985918910">
+	<command xmlns="http://jabber.org/protocol/commands" status="completed" node="v1-register-push" sessionid="1559985918910">
 		<x xmlns="jabber:x:data" type="form">
 			<field type="jid-single" var="jid">
 				<value>push.example.org</value>
