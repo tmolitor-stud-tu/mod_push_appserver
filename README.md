@@ -114,7 +114,7 @@ should be used for chat apps.
 ### Configuration options (mod\_push\_appserver\_fcm)
 
 - **push\_appserver\_fcm\_key** *(string)*  
-  Your FCM push credentials.
+  Your FCM push credentials (can be found in FCM dashboard under Settings --> Cloud Messaging --> Server key).
 - **push\_appserver\_fcm\_capath** *(string)*  
   Path to CA certificates directory. Default: `"/etc/ssl/certs"` (Debian and
   Ubuntu use this path for the system CA store).
