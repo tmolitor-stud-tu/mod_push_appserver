@@ -299,9 +299,9 @@ Submodules (like mod\_push\_appserver\_apns) can trigger the event
 }
 ```
 
-## Used By (non-complete list)
+## Used By (incomplete list)
 - [Monal (iOS)][8]
-- [Yaxim (Android)][9]
+- [yaxim (Android)][9]
 
 
 [1]: https://xmpp.org/extensions/xep-0357.html
