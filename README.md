@@ -91,7 +91,7 @@ should be used for chat apps.
   Default: `true`.
 - **push\_appserver\_apns\_mutable\_content** *(boolean)*  
   Mark high prio pushes as mutable content (only useful if `push_appserver_apns_push_priority` is set to
-  `"high"` or `"auto"`. Default: `true`.
+  `"high"` or `"auto"`). Default: `true`.
 - **push\_appserver\_apns\_push\_ttl** *(number)*  
   TTL for push notification in seconds. Default: `nil` (that means infinite).
 - **push\_appserver\_apns\_push\_priority** *(string)*  
@@ -100,9 +100,9 @@ should be used for chat apps.
   a visual indication and `"auto"` to let the appserver automatically decide between `"high"` and `"silent"`
   based on the presence of `"last-message-body"` in the push summary received from the XMPP server. Default: `"auto"`.  
   **NOTE 1 (iOS >= 13):** Apple decided for iOS >= 13 to not allow silent voip pushes anymore. Use `"high"` or `"auto"` on
-  this systems and set `push_appserver_apns_push_priority` to `true`. Then use `Notification Service Extension` in your app
+  this systems and set `push_appserver_apns_mutable_content` to `true`. Then use a `Notification Service Extension` in your app
   to log in into your XMPP account in the background, retrieve the acutal stanzas and replace the notification with a useful
-  one before the dummy notification sent by the appserver hits the screen.  
+  one before the dummy notification sent by this appserver hits the screen.  
   **NOTE 2 (iOS >= 10 and < 13):** if you have VoIP capabilities in your app `"silent"` pushes will become reliable and always
   wake up your app without triggering any visual indications on the user's phone.
   In VoIP mode your app can decide all by itself if it wants to show a notification to the user or not
