@@ -25,10 +25,10 @@ Then add the submodule you need (for example `mod_push_appserver_apns`
 or `mod_push_appserver_fcm`) to global `modules_enabled` or to the enabled
 modules of a specific virtual host or component.
 
-See this configuration example if you want to load the needed submodule as component:  
+See this configuration example for [APNS][3] if you want to load the needed submodule as component:  
 **Beware:** SNI is only available in upcoming prosody 0.12/trunk, use the same certificate
-for all hosts/components if you must use older prosody versions (e.g. wildcard certificate
-or all SANs in one certificate) and remove the `ssl` part from the example.  
+for all hosts/components (e.g. wildcard certificate or all SANs in one certificate)
+if you must use older prosody versions  and remove the `ssl` part from this example.  
 ```
 Component "push.example.org" "push_appserver_apns"
 	push_appserver_debugging = false
@@ -191,7 +191,7 @@ Example XMPP flow for registering a device:
 </iq>
 ```
 
-`node` and `secret` are the two values needed for registering push on the XMPP server afterwards,
+The two values `node` and `secret` are needed for registering push on the XMPP server afterwards,
 see [example 9 in XEP-0357, section 5][7].
 
 ### HTTP API
