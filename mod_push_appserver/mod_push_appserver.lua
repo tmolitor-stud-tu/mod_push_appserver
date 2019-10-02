@@ -199,7 +199,7 @@ local function registerPush(stanza, origin)
 	reply:tag("command", {
 		sessionid = uuid();
 		node = "v1-register-push";
-		action = "complete";
+		status = "complete";
 		xmlns = "http://jabber.org/protocol/commands";
 	}):add_child(register_result_form:form(form_data));
 	origin.send(reply);
