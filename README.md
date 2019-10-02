@@ -299,6 +299,11 @@ Submodules (like mod\_push\_appserver\_apns) can trigger the event
 }
 ```
 
+## Used By (non-complete list)
+- [Monal (iOS)][8]
+- [Yaxim (Android)][9]
+
+
 [1]: https://xmpp.org/extensions/xep-0357.html
 [2]: https://prosody.im/
 [3]: https://developer.apple.com/go/?id=push-notifications
@@ -306,3 +311,5 @@ Submodules (like mod\_push\_appserver\_apns) can trigger the event
 [5]: https://gist.github.com/tmolitor-stud-tu/a1e877a7d75c07c2163c3ce1e0347881
 [6]: https://xmpp.org/extensions/xep-0050.html
 [7]: https://xmpp.org/extensions/xep-0357.html#example-9
+[8]: https://monal.im/
+[9]: https://yaxim.org/
