@@ -13,8 +13,7 @@ module.
 
 - Prosody 0.9 or later.
 - Lua 5.1 or 5.2.
-- Installed luasec Lua library version 0.5 (Debian package: `lua-sec`), higher
-  versions are untested.
+- Installed luasec Lua library version 0.5 (Debian package: `lua-sec`) or higher.
  
 ## Installation
 
@@ -22,12 +21,35 @@ Just check out the repository somewhere and point prosody at this directory
 using `plugin_paths` in its main config file.  
 For example: `plugin_paths = { "/usr/local/lib/mod_push_appserver" }`.
 
-Then add `mod_push_appserver` and the submodule you need (for example
-`mod_push_appserver_apns` or `mod_push_appserver_fcm`) to global
-`modules_enabled` or to the enabled modules of a specific virtual host.
+Then add the submodule you need (for example `mod_push_appserver_apns`
+or `mod_push_appserver_fcm`) to global `modules_enabled` or to the enabled
+modules of a specific virtual host or component.
 
-I will eventually add a commented minimal configuration example for prosody
-to this repository, too.
+See this configuration example if you want to load the needed submodule as component:  
+**Beware:** SNI is only available in upcoming prosody 0.12/trunk, use the same certificate
+for all hosts/components if you must use older prosody versions (e.g. wildcard certificate
+or all SANs in one certificate) and remove the `ssl` part from the example.  
+```
+Component "push.example.org" "push_appserver_apns"
+	push_appserver_debugging = false
+	push_appserver_apns_sandbox = false
+	push_appserver_apns_cert = "/etc/prosody/apns_voip1.crt"
+	push_appserver_apns_key = "/etc/prosody/apns_voip1.key"
+	ssl = {
+		key = "/etc/prosody/certs/push.example.org.key";
+		certificate = "/etc/prosody/certs/push.example.org.crt";
+	}
+
+Component "push2.example.org" "push_appserver_apns"
+	push_appserver_debugging = false
+	push_appserver_apns_sandbox = false
+	push_appserver_apns_cert = "/etc/prosody/apns_voip2.crt"
+	push_appserver_apns_key = "/etc/prosody/apns_voip2.key"
+	ssl = {
+		key = "/etc/prosody/certs/push2.example.org.key";
+		certificate = "/etc/prosody/certs/push2.example.org.crt";
+	}
+```
 
 ## Usage notes (configuration)
 
@@ -133,6 +155,44 @@ See [XEP-0050][6] for more info regarding Ad-Hoc Commands in general.
 **Keep in mind that the registration command sent to this appserver is routed through the user's xmpp server.**
 **This exposes the raw APNS/FCM push token and device id to the user's xmpp server.**
 **Use the HTTP API if you don't like this.**
+
+Example XMPP flow for registering a device:  
+```
+<iq to="push.example.org" id="MyID-6465" type="set">
+	<command xmlns="http://jabber.org/protocol/commands" node="v1-register-push" action="execute">
+		<x xmlns="jabber:x:data" type="submit">
+		<field var="type">
+			<value>fcm</value>
+		</field>
+		<field var="node">
+			<value>static_device_id_like_ANDROID_ID</value>
+		</field>
+		<field var="token">
+			<value>dynamic_token_obtained_from_FirebaseInstanceId_InstanceId</value>
+		</field>
+		</x>
+	</command>
+</iq>
+
+<iq to="user@example.com/res1" from="push.example.org" type="result" id="MyID-6465">
+	<command xmlns="http://jabber.org/protocol/commands" status="complete" node="register-push-fcm" sessionid="1559985918910">
+		<x xmlns="jabber:x:data" type="form">
+			<field type="jid-single" var="jid">
+				<value>push.example.org</value>
+			</field>
+			<field type="text-single" var="node">
+				<value>echoed_back_static_device_id_like_ANDROID_ID</value>
+			</field>
+			<field type="text-single" var="secret">
+				<value>some_arbitrary_hash_like_value</value>
+			</field>
+		</x>
+	</command>
+</iq>
+```
+
+`node` and `secret` are the two values needed for registering push on the XMPP server afterwards,
+see [example 9 in XEP-0357, section 5][7].
 
 ### HTTP API
 
@@ -245,3 +305,4 @@ Submodules (like mod\_push\_appserver\_apns) can trigger the event
 [4]: https://firebase.google.com/docs/cloud-messaging/
 [5]: https://gist.github.com/tmolitor-stud-tu/a1e877a7d75c07c2163c3ce1e0347881
 [6]: https://xmpp.org/extensions/xep-0050.html
+[7]: https://xmpp.org/extensions/xep-0357.html#example-9
