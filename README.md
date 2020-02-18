@@ -22,16 +22,47 @@ using `plugin_paths` in its main config file.
 For example: `plugin_paths = { "/usr/local/lib/mod_push_appserver" }`.
 
 Then add the submodule you need (for example `mod_push_appserver_apns`
-or `mod_push_appserver_fcm`) to global `modules_enabled` or to the enabled
-modules of a specific virtual host or component.
+or `mod_push_appserver_fcm`) to the enabled modules of a specific virtual host or component.
 
-See this configuration example for [APNS][3] if you want to load the needed submodule as component:  
 **Beware:** SNI is only available in upcoming prosody 0.12/trunk, use the same certificate
 for all hosts/components (e.g. wildcard certificate or all SANs in one certificate)
-if you must use older prosody versions  and remove the `ssl` part from this example.  
+if you must use older prosody versions  and remove the `ssl` part from this examples.
+
+See this configuration example for [APNS][3] if you want to load the needed submodule as component:  
 ```
 Component "push.example.org" "push_appserver_apns"
 	push_appserver_debugging = false
+	push_appserver_apns_sandbox = false
+	push_appserver_apns_push_priority = "auto"
+	push_appserver_apns_mutable_content = true
+	push_appserver_apns_cert = "/etc/prosody/apns_normal.crt"
+	push_appserver_apns_key = "/etc/prosody/apns_normal.key"
+	ssl = {
+		key = "/etc/prosody/certs/push.example.org.key";
+		certificate = "/etc/prosody/certs/push.example.org.crt";
+	}
+
+Component "voip-push.example.org" "push_appserver_apns"
+	push_appserver_debugging = false
+	push_appserver_apns_sandbox = false
+	push_appserver_apns_push_priority = "silent"
+	push_appserver_apns_cert = "/etc/prosody/apns_voip.crt"
+	push_appserver_apns_key = "/etc/prosody/apns_voip.key"
+	ssl = {
+		key = "/etc/prosody/certs/push2.example.org.key";
+		certificate = "/etc/prosody/certs/push2.example.org.crt";
+	}
+```
+
+If you want to have only one component host supporting APNS *and* FCM you can use the following:  
+```
+Component "push.example.org" "push_appserver"
+	modules_enabled = {
+		"push_appserver_fcm";
+		"push_appserver_apns";
+	}
+	push_appserver_debugging = false
+	push_appserver_fcm_key = "someFCMkey"
 	push_appserver_apns_sandbox = false
 	push_appserver_apns_cert = "/etc/prosody/apns_voip1.crt"
 	push_appserver_apns_key = "/etc/prosody/apns_voip1.key"
@@ -39,15 +70,16 @@ Component "push.example.org" "push_appserver_apns"
 		key = "/etc/prosody/certs/push.example.org.key";
 		certificate = "/etc/prosody/certs/push.example.org.crt";
 	}
+```
 
-Component "push2.example.org" "push_appserver_apns"
+Or only use FCM:  
+```
+Component "fcm-push.example.org" "push_appserver_fcm"
 	push_appserver_debugging = false
-	push_appserver_apns_sandbox = false
-	push_appserver_apns_cert = "/etc/prosody/apns_voip2.crt"
-	push_appserver_apns_key = "/etc/prosody/apns_voip2.key"
+	push_appserver_fcm_key = "someFCMkey"
 	ssl = {
-		key = "/etc/prosody/certs/push2.example.org.key";
-		certificate = "/etc/prosody/certs/push2.example.org.crt";
+		key = "/etc/prosody/certs/fcm-push.example.org.key";
+		certificate = "/etc/prosody/certs/fcm-push.example.org.crt";
 	}
 ```
 
@@ -196,7 +228,7 @@ see [example 9 in XEP-0357, section 5][7].
 
 ### HTTP API
 
-All `POST` endpoints can be used via `GET` to get back a simple html form which
+All `POST` endpoints can be used via `GET` to get back a simple html page which
 allows you to manually test the endpoint behaviour in your browser, if the config
 option `push_appserver_debugging` is set to true (an error is returned otherwise).
 *This config option should be false in production environments!*
@@ -302,7 +334,7 @@ Submodules (like mod\_push\_appserver\_apns) can trigger the event
 ## Used By (incomplete list)
 - [Monal (iOS)][8]
 - [yaxim (Android)][9]
-
+- [can be used as drop-in replacement for p2 in PixArt-Messenger][10]
 
 [1]: https://xmpp.org/extensions/xep-0357.html
 [2]: https://prosody.im/
@@ -313,3 +345,4 @@ Submodules (like mod\_push\_appserver\_apns) can trigger the event
 [7]: https://xmpp.org/extensions/xep-0357.html#example-9
 [8]: https://monal.im/
 [9]: https://yaxim.org/
+[10]: https://jabber.pix-art.de/
