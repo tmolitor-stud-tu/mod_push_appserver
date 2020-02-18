@@ -334,7 +334,6 @@ Submodules (like mod\_push\_appserver\_apns) can trigger the event
 ## Used By (incomplete list)
 - [Monal (iOS)][8]
 - [yaxim (Android)][9]
-- [can be used as drop-in replacement for p2 in PixArt-Messenger][10]
 
 [1]: https://xmpp.org/extensions/xep-0357.html
 [2]: https://prosody.im/
@@ -345,4 +344,3 @@ Submodules (like mod\_push\_appserver\_apns) can trigger the event
 [7]: https://xmpp.org/extensions/xep-0357.html#example-9
 [8]: https://monal.im/
 [9]: https://yaxim.org/
-[10]: https://jabber.pix-art.de/
