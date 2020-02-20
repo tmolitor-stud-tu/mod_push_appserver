@@ -98,7 +98,7 @@ local function fcm_handler(event)
 		if status_code == 400 then fcm_error="Invalid JSON or unknown fields."; end
 		if status_code == 401 then fcm_error="There was an error authenticating the sender account."; end
 		if status_code >= 500 and status_code < 600 then fcm_error="Internal server error, please retry again later."; end
-		module:log("error", "Got FCM error: %s", fcm_error);
+		module:log("error", "Got FCM error: '%s'", fcm_error);
 		return fcm_error;
 	end
 	response = json.decode(response);
@@ -106,14 +106,15 @@ local function fcm_handler(event)
 	
 	-- handle errors
 	if response.failure > 0 then
-		module:log("error", "FCM returned %s failures:", tostring(response.failure));
+		module:log("warn", "FCM returned %s failures:", tostring(response.failure));
 		local fcm_error = true;
 		for k, result in pairs(response.results) do
 			if result.error and #tostring(result.error)then
-				module:log("error", "Got FCM error:", result.error);
+				module:log("warn", "Got FCM error: '%s'", tostring(result.error));
 				fcm_error = tostring(result.error);		-- return last error to mod_push_appserver
-				if result.error == "NotRegistered" or result.error == "[NotRegistered]" then
+				if result.error == "NotRegistered" then
 					-- add unregister token to prosody event queue
+					module:log("debug", "Adding unregister-push-token to prosody event queue...");
 					module:add_timer(1e-06, function()
 						module:log("warn", "Unregistering failing FCM token %s", tostring(settings["token"]))
 						module:fire_event("unregister-push-token", {token = tostring(settings["token"]), type = "fcm"})

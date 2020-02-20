@@ -289,6 +289,7 @@ local function apns_handler(event)
 					error_id_found = true;
 					if statuscode == 008 or statuscode == 005 then
 						-- add unregister token to prosody event queue
+						module:log("debug", "Adding unregister-push-token to prosody event queue...");
 						module:add_timer(1e-06, function()
 							module:log("warn", "Unregistering failing APNS token %s", tostring(settings["token"]))
 							module:fire_event("unregister-push-token", {token = tostring(settings["token"]), type = "apns"})
