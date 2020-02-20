@@ -146,23 +146,24 @@ local function create_frame(token, payload, ttl, priority)
 end
 local function extract_error(error_frame)
 	local command = string.byte(string.sub(error_frame, 1, 1));
-	local status = string.byte(string.sub(error_frame, 2, 2));
+	local statuscode = string.byte(string.sub(error_frame, 2, 2));
 	local id = bin2hex(string.sub(error_frame, 3));
+	local status = "Unknown status";
 	if command ~= 8 then return nil; end		-- error command is 8
-	if     status == 000 then status = "No errors encountered";
-	elseif status == 001 then status = "Processing error";
-	elseif status == 002 then status = "Missing device token";
-	elseif status == 003 then status = "Missing topic";
-	elseif status == 004 then status = "Missing payload";
-	elseif status == 005 then status = "Invalid token size";
-	elseif status == 006 then status = "Invalid topic size";
-	elseif status == 007 then status = "Invalid payload size";
-	elseif status == 008 then status = "Invalid token";
-	elseif status == 010 then status = "Shutdown";
-	elseif status == 128 then status = "Protocol error (APNs could not parse the notification)";
-	elseif status == 255 then status = "None (unknown)";
+	if     statuscode == 000 then status = "No errors encountered";
+	elseif statuscode == 001 then status = "Processing error";
+	elseif statuscode == 002 then status = "Missing device token";
+	elseif statuscode == 003 then status = "Missing topic";
+	elseif statuscode == 004 then status = "Missing payload";
+	elseif statuscode == 005 then status = "Invalid token size";
+	elseif statuscode == 006 then status = "Invalid topic size";
+	elseif statuscode == 007 then status = "Invalid payload size";
+	elseif statuscode == 008 then status = "Invalid token";
+	elseif statuscode == 010 then status = "Shutdown";
+	elseif statuscode == 128 then status = "Protocol error (APNs could not parse the notification)";
+	elseif statuscode == 255 then status = "None (unknown)";
 	end
-	return status, id;
+	return statuscode, id, status;
 end
 
 -- network functions
@@ -222,11 +223,11 @@ local function receive_error()
 		module:log("info", "Could not receive data from APNS socket: %s", tostring(err));
 		return true;
 	end
-	local status, error_id = extract_error(error_frame);
+	local statuscode, error_id, status = extract_error(error_frame);
 	module:log("info", "Got error for ID '%s': %s", tostring(error_id), tostring(status));
 	-- call receive_error() again to wait for pending socket close (apns closes the socket immediately after sending the error frame)
 	while not receive_error() do sleep(0.01); end
-	return error_id, status;
+	return error_id, status, statuscode;
 end
 
 -- handlers
@@ -257,7 +258,7 @@ local function apns_handler(event)
 	-- All pushes pipelined *after* the unsuccessful push are lost and have to be retried.
 	-- All pushes pipelined *before* the unsuccessful push were successful.
 	pending_pushes[id] = {event = event, timer = stoppable_timer(2, function()
-		local error, status = receive_error(0);		-- don't wait, just try to receive already pending errors
+		local statuscode, error, status = receive_error(0);		-- don't wait, just try to receive already pending errors
 		local repush = {};
 		if type(error) == "boolean" and not error then		-- no error
 			module:log("debug", "Cleaning up successful push ID %s (timer triggered)...", tostring(id));
@@ -286,6 +287,13 @@ local function apns_handler(event)
 				pending_pushes[push_id]["timer"]:stop();	-- stop all timers (we need new ones for resending pushes)
 				if push_id == error then			-- this push had an error
 					error_id_found = true;
+					if statuscode == 008 or statuscode == 005 then
+						-- add unregister token to prosody event queue
+						module:add_timer(1e-06, function()
+							module:log("warn", "Unregistering failing APNS token %s", tostring(settings["token"]))
+							module:fire_event("unregister-push-token", {token = tostring(settings["token"]), type = "apns"})
+						end)
+					end
 					pending_pushes[push_id]["event"].async_callback("APNS error: "..tostring(status));	-- --> an error occured
 				elseif not error_id_found then		-- every push *before* this error was successfull
 					module:log("debug", "Cleaning up successful push ID %s (error triggered)...", tostring(push_id));

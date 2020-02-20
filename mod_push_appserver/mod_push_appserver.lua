@@ -252,8 +252,7 @@ module:hook("iq/host", function(event)
 	if not node or not secret then return sendError(origin, stanza); end
 	
 	local settings = push_store:get(node);
-	if not settings or not #settings then return sendError(origin, stanza); end
-	if secret ~= settings["secret"] then return sendError(origin, stanza); end
+	if not settings or secret ~= settings["secret"] then return sendError(origin, stanza); end
 	
 	-- throttling
 	local throttle = create_throttle(settings["node"]);
@@ -383,7 +382,7 @@ local function serve_push_v1(event, path)
 	
 	local node, secret = arguments["node"], arguments["secret"];
 	local settings = push_store:get(node);
-	if not settings or not #settings or secret ~= settings["secret"] then
+	if not settings or secret ~= settings["secret"] then
 		module:log("info", "Node or secret not found in push, returning: 'ERROR', 'Node or secret not found!'", tostring(node));
 		return "ERROR\nNode or secret not found!";
 	end
