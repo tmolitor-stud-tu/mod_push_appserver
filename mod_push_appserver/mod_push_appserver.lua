@@ -81,7 +81,7 @@ local push_store = (function()
 		return store:users();
 	end
 	function api:token2node(token)
-		if token2node_cache[token] then return token2node_cache[token].node; end
+		if token2node_cache[token] then return token2node_cache[token]; end
 		for node in store:users() do
 			local err;
 			-- read data directly, we don't want to cache full copies of stale entries as api:get() would do
@@ -92,7 +92,7 @@ local push_store = (function()
 			end
 			if settings.token and settings.node then token2node_cache[settings.token] = settings.node; end
 		end
-		if token2node_cache[token] then return token2node_cache[token].node; end
+		if token2node_cache[token] then return token2node_cache[token]; end
 		return nil;
 	end
 	return api;
@@ -288,7 +288,7 @@ local function unregister_push_node(node, type)
 		push_store:set(node, nil);
 		throttles[node] = nil;
 		module:log("info", "Unregistered push device, returning: 'OK', '%s', '%s'", tostring(node), tostring(settings["secret"]));
-		module:log("debug", "settings: %s", pretty.write(settings));
+		module:log("debug", "settings were: %s", pretty.write(settings));
 		return "OK\n"..node.."\n"..settings["secret"];
 	end
 	
