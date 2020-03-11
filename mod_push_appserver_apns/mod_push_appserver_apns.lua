@@ -232,10 +232,7 @@ end
 
 -- handlers
 local function apns_handler(event)
-	local settings = event.settings;
-	local summary = event.summary;
-	local async_callback = event.async_callback;
-	
+	local settings, summary, async_callback = event.settings, event.summary, event.async_callback;
 	-- prepare data to send (using latest binary format, not the legacy binary format or the new http/2 format)
 	local payload;
 	local priority = push_priority;

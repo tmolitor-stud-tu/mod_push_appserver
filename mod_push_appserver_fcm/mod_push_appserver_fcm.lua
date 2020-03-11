@@ -7,18 +7,8 @@
 -- Submodule implementing FCM communication
 --
 
--- imports
--- unlock prosody globals and allow ltn12 to pollute the global space
--- this fixes issue #8 in prosody 0.11, see also https://issues.prosody.im/1033
-prosody.unlock_globals()
-require "ltn12";
-local https = require "ssl.https";
-prosody.lock_globals()
-local string = require "string";
-local t_remove = table.remove;
-local datetime = require "util.datetime";
+local http = require "net.http";
 local json = require "util.json";
-
 local pretty = require "pl.pretty";
 
 -- this is the master module
@@ -38,44 +28,40 @@ local push_priority = module:get_option_string("push_appserver_fcm_push_priority
 local push_endpoint = "https://fcm.googleapis.com/fcm/send";
 
 -- high level network (https) functions
-local function send_request(data)
-	local respbody = {} -- for the response body
-	prosody.unlock_globals();	-- unlock globals (https.request() tries to access global PROXY)
-	local result, status_code, headers, status_line = https.request({
-		method = "POST",
-		url = push_endpoint,
-		source = ltn12.source.string(data),
+local function send_request(data, callback)
+	local x = {
+		sslctx = {
+			mode = "client",
+			protocol = "tlsv1_2",
+			verify = {"peer", "fail_if_no_peer_cert"},
+			capath = capath,
+			ciphers = ciphers,
+			options = {
+				"no_sslv2",
+				"no_sslv3",
+				"no_ticket",
+				"no_compression",
+				"cipher_server_preference",
+				"single_dh_use",
+				"single_ecdh_use",
+			}
+		},
 		headers = {
 			["authorization"] = "key="..tostring(fcm_key),
 			["content-type"] = "application/json",
 			["content-length"] = tostring(#data)
 		},
-		sink = ltn12.sink.table(respbody),
-		-- luasec tls options
-		mode = "client",
-		protocol = "tlsv1_2",
-		verify = {"peer", "fail_if_no_peer_cert"},
-		capath = capath,
-		ciphers = ciphers,
-		options = {
-			"no_sslv2",
-			"no_sslv3",
-			"no_ticket",
-			"no_compression",
-			"cipher_server_preference",
-			"single_dh_use",
-			"single_ecdh_use",
-		},
-	});
-	prosody.lock_globals();		-- lock globals again
-	if not result then return nil, status_code; end		-- status_code contains the error message in case of failure
-	-- return body as string by concatenating table filled by sink
-	return table.concat(respbody), status_code, status_line, headers;
+		body = data
+	};
+	local ok, err = http.request(push_endpoint, x, callback);
+	if not ok then
+		callback(nil, err);
+	end
 end
 
 -- handlers
 local function fcm_handler(event)
-	local settings = event.settings;
+	local settings, summary, async_callback = event.settings, event.summary, event.async_callback;
 	local data = {
 		["to"] = tostring(settings["token"]),
 		["collapse_key"] = "mod_push_appserver_fcm.collapse",
@@ -84,54 +70,63 @@ local function fcm_handler(event)
 	};
 	if push_ttl and push_ttl > 0 then data["time_to_live"] = push_ttl; end		-- ttl is optional (google's default: 4 weeks)
 	
-	data = json.encode(data);
-	module:log("debug", "sending to %s, json string: %s", push_endpoint, data);
-	local response, status_code, status_line = send_request(data);
-	if not response then
-		module:log("error", "Could not send FCM request: %s", tostring(status_code));
-		return tostring(status_code);		-- return error message
-	end
-	module:log("debug", "response status code: %s, raw response body: %s", tostring(status_code), response);
-	
-	if status_code ~= 200 then
-		local fcm_error = "Unknown FCM error.";
-		if status_code == 400 then fcm_error="Invalid JSON or unknown fields."; end
-		if status_code == 401 then fcm_error="There was an error authenticating the sender account."; end
-		if status_code >= 500 and status_code < 600 then fcm_error="Internal server error, please retry again later."; end
-		module:log("error", "Got FCM error: '%s'", fcm_error);
-		return fcm_error;
-	end
-	response = json.decode(response);
-	module:log("debug", "decoded: %s", pretty.write(response));
-	
-	-- handle errors
-	if response.failure > 0 then
-		module:log("warn", "FCM returned %s failures:", tostring(response.failure));
-		local fcm_error = true;
-		for k, result in pairs(response.results) do
-			if result.error and #tostring(result.error)then
-				module:log("warn", "Got FCM error: '%s'", tostring(result.error));
-				fcm_error = tostring(result.error);		-- return last error to mod_push_appserver
-				if result.error == "NotRegistered" then
-					-- add unregister token to prosody event queue
-					module:log("debug", "Adding unregister-push-token to prosody event queue...");
-					module:add_timer(1e-06, function()
-						module:log("warn", "Unregistering failing FCM token %s", tostring(settings["token"]))
-						module:fire_event("unregister-push-token", {token = tostring(settings["token"]), type = "fcm"})
-					end)
+	local callback = function(response, status_code)
+		if not response then
+			module:log("error", "Could not send FCM request: %s", tostring(status_code));
+			async_callback(tostring(status_code));		-- return error message
+			return;
+		end
+		module:log("debug", "response status code: %s, raw response body: %s", tostring(status_code), response);
+		
+		if status_code ~= 200 then
+			local fcm_error = "Unknown FCM error.";
+			if status_code == 400 then fcm_error="Invalid JSON or unknown fields."; end
+			if status_code == 401 then fcm_error="There was an error authenticating the sender account."; end
+			if status_code >= 500 and status_code < 600 then fcm_error="Internal server error, please retry again later."; end
+			module:log("error", "Got FCM error: '%s'", fcm_error);
+			async_callback(fcm_error);
+			return;
+		end
+		response = json.decode(response);
+		module:log("debug", "decoded: %s", pretty.write(response));
+		
+		-- handle errors
+		if response.failure > 0 then
+			module:log("warn", "FCM returned %s failures:", tostring(response.failure));
+			local fcm_error = true;
+			for k, result in pairs(response.results) do
+				if result.error and #tostring(result.error)then
+					module:log("warn", "Got FCM error: '%s'", tostring(result.error));
+					fcm_error = tostring(result.error);		-- return last error to mod_push_appserver
+					if result.error == "NotRegistered" then
+						-- add unregister token to prosody event queue
+						module:log("debug", "Adding unregister-push-token to prosody event queue...");
+						module:add_timer(1e-06, function()
+							module:log("warn", "Unregistering failing FCM token %s", tostring(settings["token"]))
+							module:fire_event("unregister-push-token", {token = tostring(settings["token"]), type = "fcm"})
+						end)
+					end
 				end
 			end
+			async_callback(fcm_error);
+			return;
 		end
-		return fcm_error;
+		
+		-- handle success
+		for k, result in pairs(response.results) do
+			if result.message_id then
+				module:log("debug", "got FCM message id: '%s'", tostring(result.message_id));
+			end
+		end
+		
+		async_callback(false);		-- --> no error occured
+		return;
 	end
 	
-	-- handle success
-	for k, result in pairs(response.results) do
-		if result.message_id then
-			module:log("debug", "got FCM message id: '%s'", tostring(result.message_id));
-		end
-	end
-	return false;	-- no error occured
+	data = json.encode(data);
+	module:log("debug", "sending to %s, json string: %s", push_endpoint, data);
+	send_request(data, callback);
+	return true;		-- signal the use of use async iq responses
 end
 
 -- setup
