@@ -47,9 +47,8 @@ local function send_request(data, callback)
 			}
 		},
 		headers = {
-			["authorization"] = "key="..tostring(fcm_key),
-			["content-type"] = "application/json",
-			["content-length"] = tostring(#data)
+			["Authorization"] = "key="..tostring(fcm_key),
+			["Content-Type"] = "application/json",
 		},
 		body = data
 	};
