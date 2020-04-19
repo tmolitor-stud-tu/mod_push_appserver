@@ -24,10 +24,6 @@ For example: `plugin_paths = { "/usr/local/lib/mod_push_appserver" }`.
 Then add the submodule you need (for example `mod_push_appserver_apns`
 or `mod_push_appserver_fcm`) to the enabled modules of a specific virtual host or component.
 
-**Beware:** SNI is only available in upcoming prosody 0.12/trunk, use the same certificate
-for all hosts/components (e.g. wildcard certificate or all SANs in one certificate)
-if you must use older prosody versions  and remove the `ssl` part from this examples.
-
 See this configuration example for [APNS][3] if you want to load the needed submodule as component:  
 ```
 Component "push.example.org" "push_appserver_apns"
