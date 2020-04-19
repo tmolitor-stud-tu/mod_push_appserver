@@ -11,7 +11,7 @@ module.
 
 ## Requirements
 
-- Prosody 0.9 or later.
+- Prosody trunk/0.12 or later.
 - Lua 5.1 or 5.2.
 - Installed luasec Lua library version 0.5 (Debian package: `lua-sec`) or higher.
  
