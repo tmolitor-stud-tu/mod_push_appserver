@@ -255,7 +255,8 @@ module:hook("iq/host", function(event)
 	if not settings or secret ~= settings["secret"] then return sendError(origin, stanza); end
 	
 	-- throttling
-	local throttle = create_throttle(settings["node"]);
+	local push_priority = (summary and summary["last-message-body"] ~= nil) and "high" or "silent"
+	local throttle = create_throttle(push_priority.."@"..settings["node"]);
 	if not throttle:poll(1) then
 		module:log("warn", "Rate limit for node '%s' reached, ignoring push request (and returning 'wait' error)", settings["node"]);
 		origin.send(st.error_reply(stanza, "wait", "resource-constraint", "Ratelimit reached"));
