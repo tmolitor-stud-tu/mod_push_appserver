@@ -337,27 +337,29 @@ local function query_feedback_service()
 	
 	repeat
 		local feedback, err = conn:receive(6);
-		if err == "timeout" or err == "closed" then		-- no error occured (no data left)
-			module:log("info", "No more APNS errors left on feedback service");
-			break;
-		end
-		if err then
-			module:log("error", "Could not receive data from APNS feedback socket (receive 1): %s", tostring(err));
-			break;
-		end
-		local timestamp = bin2long(string.sub(feedback, 1, 4));
-		local token_length = bin2short(string.sub(feedback, 5, 6));
-		
-		feedback, err = conn:receive(token_length);
-		if err then		-- timeout is also an error here, since the frame is incomplete in this case
-			module:log("error", "Could not receive data from APNS feedback socket (receive 2): %s", tostring(err));
-			break;
-		end
-		local token = bin2hex(string.sub(feedback, 1, token_length));
-		module:log("info", "Got feedback service entry for token '%s' timestamped with '%s", token, datetime.datetime(timestamp));
-		
-		if not module:fire_event("unregister-push-token", {token = token, type = "apns", timestamp = timestamp}) then
-			module:log("warn", "Could not unregister push token");
+		if err ~= "wantread" then
+			if err == "timeout" or err == "closed" then		-- no error occured (no data left)
+				module:log("info", "No more APNS feedback left on feedback service");
+				break;
+			end
+			if err then
+				module:log("error", "Could not receive data from APNS feedback socket (receive 1): %s", tostring(err));
+				break;
+			end
+			local timestamp = bin2long(string.sub(feedback, 1, 4));
+			local token_length = bin2short(string.sub(feedback, 5, 6));
+			
+			feedback, err = conn:receive(token_length);
+			if err then		-- timeout is also an error here, since the frame is incomplete in this case
+				module:log("error", "Could not receive data from APNS feedback socket (receive 2): %s", tostring(err));
+				break;
+			end
+			local token = bin2hex(string.sub(feedback, 1, token_length));
+			module:log("info", "Got feedback service entry for token '%s' timestamped with '%s", token, datetime.datetime(timestamp));
+			
+			if not module:fire_event("unregister-push-token", {token = token, type = "apns", timestamp = timestamp}) then
+				module:log("warn", "Could not unregister push token");
+			end
 		end
 	until false;
 	close_connection(conn);
