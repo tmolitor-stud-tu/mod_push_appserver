@@ -240,7 +240,7 @@ local function apns_handler(event)
 		priority = (summary and summary["last-message-body"] ~= nil) and "high" or "silent";
 	end
 	if priority == "high" then
-		payload = '{"aps":{'..(mutable_content and '"mutable-content":"1",' or '')..'"alert":{"title": "dummy", "body": "dummy"},"sound":"default"}}';
+		payload = '{"aps":{'..(mutable_content and '"mutable-content":"1",' or '')..'"alert":{"title": "New Message", "body": "New Message"},"sound":"default"}}';
 	else
 		payload = '{"aps":{"content-available":1}}';
 	end
@@ -255,9 +255,9 @@ local function apns_handler(event)
 	-- All pushes pipelined *after* the unsuccessful push are lost and have to be retried.
 	-- All pushes pipelined *before* the unsuccessful push were successful.
 	pending_pushes[id] = {event = event, timer = stoppable_timer(2, function()
-		local statuscode, error, status = receive_error(0);		-- don't wait, just try to receive already pending errors
+		local error_id, status, statuscode = receive_error(0);		-- don't wait, just try to receive already pending errors
 		local repush = {};
-		if type(error) == "boolean" and not error then		-- no error
+		if type(error_id) == "boolean" and not error_id then		-- no error
 			module:log("debug", "Cleaning up successful push ID %s (timer triggered)...", tostring(id));
 			pending_pushes[id]["timer"]:stop();
 			pending_pushes[id]["event"].async_callback(false);		-- timeout --> no error occured
@@ -266,7 +266,7 @@ local function apns_handler(event)
 			for i, push_id in ipairs(ordered_push_ids) do
 				if push_id == id then table.remove(ordered_push_ids, i); break; end
 			end
-		elseif type(error) == "boolean" and error then		-- read error
+		elseif type(error_id) == "boolean" and error_id then		-- read error
 			module:log("warn", "APNS read error --> resending *all* pending pushes...");
 			repush = pending_pushes;		-- resend all
 			-- stop all timers (we need new ones for resending pushes)
@@ -276,13 +276,13 @@ local function apns_handler(event)
 			-- clear all pending pushes
 			pending_pushes = {};
 			ordered_push_ids = {};
-		elseif type(error) ~= "boolean" then				-- error frame (error contains push id)
-			module:log("warn", "APNS push error for ID '%s' --> resending all following pushes...", error);
+		elseif type(error_id) ~= "boolean" then				-- error frame (error_id contains push id)
+			module:log("warn", "APNS push error for ID '%s' --> resending all following pushes...", error_id);
 			local error_id_found = false;
 			for i, push_id in ipairs(ordered_push_ids) do
 				module:log("debug", "Queue entry %d: %s", i, tostring(push_id))
 				pending_pushes[push_id]["timer"]:stop();	-- stop all timers (we need new ones for resending pushes)
-				if push_id == error then			-- this push had an error
+				if push_id == error_id then			-- this push had an error
 					error_id_found = true;
 					if statuscode == 008 or statuscode == 005 then
 						-- add unregister token to prosody event queue
@@ -339,7 +339,7 @@ local function query_feedback_service()
 		local feedback, err = conn:receive(6);
 		if err ~= "wantread" then
 			if err == "timeout" or err == "closed" then		-- no error occured (no data left)
-				module:log("info", "No more APNS feedback left on feedback service");
+				module:log("info", "No more APNS errors left on feedback service");
 				break;
 			end
 			if err then
