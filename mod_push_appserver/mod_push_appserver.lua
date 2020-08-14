@@ -68,7 +68,7 @@ local push_store = (function()
 	end
 	function api:set(node, data)
 		local settings = api:get(node);		-- load node's data
-		if settings.token then token2node_cache[settings.token] = nil; end		-- invalidate token2node cache
+		if settings.token then token2node_cache[string.lower(settings.token)] = nil; end		-- invalidate token2node cache
 		cache[node] = data;
 		local ok, err = store:set(node, cache[node]);
 		if not ok then
@@ -81,6 +81,7 @@ local push_store = (function()
 		return store:users();
 	end
 	function api:token2node(token)
+		token = string.lower(token);
 		if token2node_cache[token] then return token2node_cache[token]; end
 		for node in store:users() do
 			local err;
@@ -90,7 +91,7 @@ local push_store = (function()
 				module:log("error", "Error reading push notification storage for node '%s': %s", node, tostring(err));
 				settings = {};
 			end
-			if settings.token and settings.node then token2node_cache[settings.token] = settings.node; end
+			if settings.token and settings.node then token2node_cache[string.lower(settings.token)] = settings.node; end
 		end
 		if token2node_cache[token] then return token2node_cache[token]; end
 		return nil;
