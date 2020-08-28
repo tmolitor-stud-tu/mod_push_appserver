@@ -12,8 +12,10 @@ module.
 ## Requirements
 
 - Prosody trunk/0.12 or later.
-- Lua 5.1 or 5.2.
+- Lua 5.1, 5.2 or 5.3
 - Installed luasec Lua library version 0.5 (Debian package: `lua-sec`) or higher.
+- Installed cqueues Lua library (Debian package: `lua-cqueues`).
+- Installed lua-http Lua library (Debian package: `lua-http`).
  
 ## Installation
 
@@ -33,6 +35,7 @@ Component "push.example.org" "push_appserver_apns"
 	push_appserver_apns_mutable_content = true
 	push_appserver_apns_cert = "/etc/prosody/apns_normal.crt"
 	push_appserver_apns_key = "/etc/prosody/apns_normal.key"
+	push_appserver_apns_topic = "my.app.bundle.id"
 	ssl = {
 		key = "/etc/prosody/certs/push.example.org.key";
 		certificate = "/etc/prosody/certs/push.example.org.crt";
@@ -41,9 +44,10 @@ Component "push.example.org" "push_appserver_apns"
 Component "voip-push.example.org" "push_appserver_apns"
 	push_appserver_debugging = false
 	push_appserver_apns_sandbox = false
-	push_appserver_apns_push_priority = "silent"
+	push_appserver_apns_push_priority = "voip"
 	push_appserver_apns_cert = "/etc/prosody/apns_voip.crt"
 	push_appserver_apns_key = "/etc/prosody/apns_voip.key"
+	push_appserver_apns_topic = "my.app.bundle.id"
 	ssl = {
 		key = "/etc/prosody/certs/push2.example.org.key";
 		certificate = "/etc/prosody/certs/push2.example.org.crt";
@@ -60,8 +64,10 @@ Component "push.example.org" "push_appserver"
 	push_appserver_debugging = false
 	push_appserver_fcm_key = "someFCMkey"
 	push_appserver_apns_sandbox = false
+	push_appserver_apns_push_priority = "voip"
 	push_appserver_apns_cert = "/etc/prosody/apns_voip1.crt"
 	push_appserver_apns_key = "/etc/prosody/apns_voip1.key"
+	push_appserver_apns_topic = "my.app.bundle.id"
 	ssl = {
 		key = "/etc/prosody/certs/push.example.org.key";
 		certificate = "/etc/prosody/certs/push.example.org.crt";
@@ -72,7 +78,7 @@ Or only use FCM:
 ```
 Component "fcm-push.example.org" "push_appserver_fcm"
 	push_appserver_debugging = false
-	push_appserver_fcm_key = "someFCMkey"
+	push_appserver_fcm_key = "myFCMkey"
 	ssl = {
 		key = "/etc/prosody/certs/fcm-push.example.org.key";
 		certificate = "/etc/prosody/certs/fcm-push.example.org.crt";
@@ -108,6 +114,8 @@ should be used for chat apps.
   Path to your APNS push certificate in PEM format.
 - **push\_appserver\_apns\_key** *(string)*  
   Path to your APNS push certificate key in PEM format.
+- **push\_appserver\_apns\_topic** *(string)*  
+  The APNS push topic to use (should be your app's bundle id).
 - **push\_appserver\_apns\_capath** *(string)*  
   Path to CA certificates directory. Default: `"/etc/ssl/certs"` (Debian and
   Ubuntu use this path for the system CA store).
@@ -118,14 +126,14 @@ should be used for chat apps.
   Use apns sandbox api endpoint if `true`, production endpoint otherwise.
   Default: `true`.
 - **push\_appserver\_apns\_mutable\_content** *(boolean)*  
-  Mark high prio pushes as mutable content (only useful if `push_appserver_apns_push_priority` is set to
+  Mark high prio pushes as mutable content (only has a meaningful effect if `push_appserver_apns_push_priority` is set to
   `"high"` or `"auto"`). Default: `true`.
 - **push\_appserver\_apns\_push\_ttl** *(number)*  
-  TTL for push notification in seconds. Default: `nil` (that means infinite).
+  TTL for push notification in seconds. Default: `4*7*24*3600` (that means 4 weeks from now).
 - **push\_appserver\_apns\_push\_priority** *(string)*  
   Value `"high"` for high priority pushes always triggering a visual indication on the user's phone,
   `"silent"` for silent pushes that can be delayed or not delivered at all but don't trigger
-  a visual indication and `"auto"` to let the appserver automatically decide between `"high"` and `"silent"`
+  a visual indication, `voip` for voip pushes and `"auto"` to let the appserver automatically decide between `"high"` and `"silent"`
   based on the presence of `"last-message-body"` in the push summary received from the XMPP server. Default: `"auto"`.  
   **NOTE 1 (iOS >= 13):** Apple decided for iOS >= 13 to not allow silent voip pushes anymore. Use `"high"` or `"auto"` on
   this systems and set `push_appserver_apns_mutable_content` to `true`. Then use a `Notification Service Extension` in your app
@@ -134,10 +142,8 @@ should be used for chat apps.
   **NOTE 2 (iOS >= 10 and < 13):** if you have VoIP capabilities in your app `"silent"` pushes will become reliable and always
   wake up your app without triggering any visual indications on the user's phone.
   In VoIP mode your app can decide all by itself if it wants to show a notification to the user or not
-  by simply logging into the XMPP account in the backround and retrieving the stanzas that triggered the push.
-- **push\_appserver\_apns\_feedback\_request\_interval** *(number)*  
-  Interval in seconds to query Apple's feedback service for extinction of
-  invalid tokens. Default: 24 hours.
+  by simply logging into the XMPP account in the backround and retrieving the stanzas that triggered the push.  
+  *You have to use `voip` if you want to send voip pushes (all iOS versions).*
 
 ### Configuration options (mod\_push\_appserver\_fcm)
 

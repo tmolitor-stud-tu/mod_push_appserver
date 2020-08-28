@@ -8,226 +8,63 @@
 --
 
 -- imports
-local socket = require "socket";
-local ssl = require "ssl";
-local string = require "string";
-local t_remove = table.remove;
-local datetime = require "util.datetime";
-local hashes = require "util.hashes";
+local cq = require "net.cqueues".cq;
+local http_client = require "http.client";
+local new_headers = require "http.headers".new;
+local ce = require "cqueues.errno";
+local new_tls_context = require "http.tls".new_client_context;
+local openssl_ctx = require "openssl.ssl.context";
+local x509 = require "openssl.x509";
+local pkey = require "openssl.pkey";
+local json = require "util.json";
+local pretty = require "pl.pretty";
 
 -- this is the master module
 module:depends("push_appserver");
 
 -- configuration
 local test_environment = false;
-local apns_cert = module:get_option_string("push_appserver_apns_cert", nil);					--push certificate (no default)
-local apns_key = module:get_option_string("push_appserver_apns_key", nil);						--push certificate key (no default)
-local capath = module:get_option_string("push_appserver_apns_capath", "/etc/ssl/certs");		--ca path on debian systems
+local apns_cert = module:get_option_string("push_appserver_apns_cert", nil);							--push certificate (no default)
+local apns_key = module:get_option_string("push_appserver_apns_key", nil);								--push certificate key (no default)
+local topic = module:get_option_string("push_appserver_apns_topic", nil);								--apns topic: app bundle id (no default)
+local capath = module:get_option_string("push_appserver_apns_capath", "/etc/ssl/certs");				--ca path on debian systems
 local ciphers = module:get_option_string("push_appserver_apns_ciphers",
 	"ECDHE-RSA-AES256-GCM-SHA384:"..
 	"ECDHE-ECDSA-AES256-GCM-SHA384:"..
 	"ECDHE-RSA-AES128-GCM-SHA256:"..
-	"ECDHE-ECDSA-AES128-GCM-SHA256:"..
-	"AES256-SHA"	-- apparently this is needed for the old binary apns endpoint
-);	--supported ciphers
-local mutable_content = module:get_option_boolean("push_appserver_apns_mutable_content", true);	--flag high prio pushes as mutable content
-local push_ttl = module:get_option_number("push_appserver_apns_push_ttl", nil);					--no ttl
-local push_priority = module:get_option_string("push_appserver_apns_push_priority", "auto");	--automatically decide push priority
-local sandbox = module:get_option_boolean("push_appserver_apns_sandbox", true);					--use APNS sandbox
-local feedback_request_interval = module:get_option_number("push_appserver_apns_feedback_request_interval", 3600*24);	--24 hours
-local push_host = sandbox and "gateway.sandbox.push.apple.com" or "gateway.push.apple.com";
-local push_port = 2195;
-local feedback_host = sandbox and "feedback.sandbox.push.apple.com" or "feedback.push.apple.com";
-local feedback_port = 2196;
+	"ECDHE-ECDSA-AES128-GCM-SHA256"
+);
+local mutable_content = module:get_option_boolean("push_appserver_apns_mutable_content", true);			--flag high prio pushes as mutable content
+local push_ttl = module:get_option_number("push_appserver_apns_push_ttl", os.time() + (4*7*24*3600));	--now + 4 weeks
+local push_priority = module:get_option_string("push_appserver_apns_push_priority", "auto");			--automatically decide push priority
+local sandbox = module:get_option_boolean("push_appserver_apns_sandbox", true);							--use APNS sandbox
+local push_host = sandbox and "api.sandbox.push.apple.com" or "api.push.apple.com";
+local push_port = 443;
 if test_environment then push_host = "localhost"; end
+local default_tls_options = openssl_ctx.OP_NO_COMPRESSION + openssl_ctx.OP_SINGLE_ECDH_USE + openssl_ctx.OP_NO_SSLv2 + openssl_ctx.OP_NO_SSLv3;
 
 -- global state
-local conn = nil;
-local pending_pushes = {};
-local ordered_push_ids = {};
+local connection = nil;
+local certstring;
+local keystring;
 
 -- general utility functions
-local function stoppable_timer(delay, callback)		-- this function is needed for compatibility with prosody <= 0.10
-	local stopped = false;
-	local timer = module:add_timer(delay, function(t)
-		if stopped then return; end
-		return callback(t);
-	end);
-	if timer and timer["stop"] then return timer; end
-	return {
-		stop = function () stopped = true end;
-		timer;
-	};
+local function non_final_status(status)
+	return status:sub(1, 1) == "1" and status ~= "101"
 end
-
--- small helper function to return new table with only "maximum" elements containing only the newest entries
-local function reduce_table(table, maximum)
-	local count = 0;
-	local result = {};
-	for key, value in orderedPairs(table) do
-		count = count + 1;
-		if count > maximum then break end
-		result[key] = value;
-	end
-	return result;
+local function readAll(file)
+    local f = assert(io.open(file, "rb"));
+    local content = f:read("*all");
+    f:close();
+    return content;
 end
-
--- utility functions for binary manipulations
-local function hex2bin(str)
-	return (str:gsub('..', function(cc)
-		return string.char(tonumber(cc, 16))
-	end))
-end
-local function bin2hex(str)
-	return (str:gsub('.', function (c)
-		return string.format('%02X', string.byte(c));
-	end))
-end
-local function byte2bin(byte)
-	if byte < 0 or byte > 255 then return nil; end
-	return string.char(byte);
-end
-local function bin2byte(bin)
-	return string.byte(bin);
-end
-local function short2bin(short)
-	if short < 0 or short > 2^16 - 1 then return nil; end
-	return hex2bin(string.format('%04X', short));
-end
-local function bin2short(bin)
-	return tonumber(bin2hex(string.sub(bin, 1, 2)), 16);
-end
-local function long2bin(long)
-	if long < 0 or long > 2^32 - 1 then return nil; end
-	return hex2bin(string.format('%08X', long));
-end
-local function bin2long(bin)
-	return tonumber(bin2hex(string.sub(bin, 1, 4)), 16);
-end
-
--- protocol helpers (using latest binary format, not the legacy binary format or the new http/2 format)
-local function pack_item(itemtype, data)
-	local id = 0;
-	if itemtype == "token" then				-- push token (named deviceid in apple docs)
-		id = 1;
-		data = hex2bin(data);
-	elseif itemtype == "payload" then		-- json encoded payload
-		id = 2;
-		-- nothing more to do here
-	elseif itemtype == "identifier" then	-- notification identifier
-		id = 3;
-		data = string.sub(hex2bin(data), -4);
-	elseif itemtype == "ttl" then			-- expiration date (given as TTL in seconds counted from now on)
-		id = 4;
-		data = long2bin(os.time() + data);
-	elseif itemtype == "priority" then		-- priority (can only be "silent" or "high")
-		id = 5;
-		data = byte2bin(data == "high" and 10 or 5);	-- default: 5 (silent)
-	else
-		return nil;
-	end
-	return byte2bin(id)..short2bin(string.len(data))..data;
-end
-local function create_frame(token, payload, ttl, priority)
-	local id = string.upper(string.sub(hashes.hmac_sha256(tostring(payload).."@"..tostring(token), os.clock(), true), -8));	-- 8 hex chars (4 bytes)
-	local frame = pack_item("token",		token)..
-				  pack_item("payload",		payload)..
-				  pack_item("identifier",	id)..
-				  (ttl and pack_item("ttl", ttl) or "")..		-- ttl is optional
-				  pack_item("priority",		priority);			-- priority is optional (default: silent)
-	local command = byte2bin(2);	-- notify via latest binary protocol
-	local frame_length = long2bin(string.len(frame));
-	module:log("debug", "Frame ID: %s", tostring(id));
-	module:log("debug", "Frame length: %d (%s)", string.len(frame), tostring(bin2hex(frame_length)));
-	module:log("debug", "Frame data: %s", tostring(bin2hex(frame)));
-	frame = command..frame_length..frame;
-	module:log("debug", "Frame: %s", tostring(bin2hex(frame)));
-	return frame, id;
-end
-local function extract_error(error_frame)
-	local command = string.byte(string.sub(error_frame, 1, 1));
-	local statuscode = string.byte(string.sub(error_frame, 2, 2));
-	local id = bin2hex(string.sub(error_frame, 3));
-	local status = "Unknown status";
-	if command ~= 8 then return nil; end		-- error command is 8
-	if     statuscode == 000 then status = "No errors encountered";
-	elseif statuscode == 001 then status = "Processing error";
-	elseif statuscode == 002 then status = "Missing device token";
-	elseif statuscode == 003 then status = "Missing topic";
-	elseif statuscode == 004 then status = "Missing payload";
-	elseif statuscode == 005 then status = "Invalid token size";
-	elseif statuscode == 006 then status = "Invalid topic size";
-	elseif statuscode == 007 then status = "Invalid payload size";
-	elseif statuscode == 008 then status = "Invalid token";
-	elseif statuscode == 010 then status = "Shutdown";
-	elseif statuscode == 128 then status = "Protocol error (APNs could not parse the notification)";
-	elseif statuscode == 255 then status = "None (unknown)";
-	end
-	return statuscode, id, status;
-end
-
--- network functions
-local function init_connection(conn, host, port)
-	local params = {
-		mode = "client",
-		protocol = "tlsv1_2",
-		verify = {"peer", "fail_if_no_peer_cert"},
-		capath = capath,
-		ciphers = ciphers,
-		certificate = apns_cert,
-		key = apns_key,
-		options = {
-			"no_sslv2",
-			"no_sslv3",
-			"no_ticket",
-			"no_compression",
-			"single_dh_use",
-			"single_ecdh_use",
-		},
-	}
-	if test_environment then params["verify"] = nil; end
-	local success, err;
-	
-	if conn then success, err = conn:receive(0); end
-	--module:log("debug", "conn=%s,success=%s, err=%s", tostring(conn), tostring(success), tostring(err));
-	if conn and (err == "timeout" or err == "wantread" or err == nil) then module:log("debug", "already connected to apns: %s", tostring(err)); return conn; end		-- already connected
-	
-	-- init connection
-	module:log("debug", "connecting to %s on port %d", host, port);
-	conn, err = socket.tcp();
-	if not conn then module:log("error", "Could not create APNS socket: %s", tostring(err)); return nil; end
-	success, err = conn:connect(host, port);
-	if not success then module:log("error", "Could not connect APNS socket: %s", tostring(err)); return nil; end
-	
-	-- init tls and timeouts
-	conn, err = ssl.wrap(conn, params);
-	if not conn then module:log("error", "Could not tls-wrap APNS socket: %s", tostring(err)); return nil; end
-	success, err = conn:dohandshake();
-	if not success then module:log("error", "Could not negotiate TLS encryption with APNS: %s", tostring(err)); return nil; end
-	conn:settimeout(0);		-- zero timeout allows for a maximum of pushes per second
-	
-	module:log("debug", "connection established successfully");
-	return conn;
-end
-local function close_connection(conn)
-	if conn then conn:close(); end
-	return nil;
-end
-local function sleep(sec)
-    socket.select(nil, nil, sec)
-end
-local function receive_error()
-	local error_frame, err = conn:receive(6);
-	if err == "timeout" or err == "wantread" then return false; end		-- no error occured yet
-	if err then
-		module:log("info", "Could not receive data from APNS socket: %s", tostring(err));
-		return true;
-	end
-	local statuscode, error_id, status = extract_error(error_frame);
-	module:log("info", "Got error for ID '%s': %s", tostring(error_id), tostring(status));
-	-- call receive_error() again to wait for pending socket close (apns closes the socket immediately after sending the error frame)
-	while not receive_error() do sleep(0.01); end
-	return error_id, status, statuscode;
+local function unregister_token(token)
+	-- add unregister token to prosody event queue
+	module:log("debug", "Adding unregister-push-token to prosody event queue...");
+	module:add_timer(1e-06, function()
+		module:log("warn", "Unregistering failing APNS token %s", tostring(token))
+		module:fire_event("unregister-push-token", {token = tostring(token), type = "apns"})
+	end)
 end
 
 -- handlers
@@ -240,137 +77,158 @@ local function apns_handler(event)
 		priority = (summary and summary["last-message-body"] ~= nil) and "high" or "silent";
 	end
 	if priority == "high" then
-		payload = '{"aps":{'..(mutable_content and '"mutable-content":"1",' or '')..'"alert":{"title": "New Message", "body": "New Message"},"sound":"default"}}';
+		payload = '{"aps":{'..(mutable_content and '"mutable-content":"1",' or '')..'"alert":{"title":"New Message", "body":"New Message"}, "sound":"default"}}';
 	else
 		payload = '{"aps":{"content-available":1}}';
 	end
-	local frame, id = create_frame(settings["token"], payload, push_ttl, priority);
 	
-	conn = init_connection(conn, push_host, push_port);
-	if not conn then return "Error connecting to APNS"; end		-- error occured
-	
-	-- register timer (use 2 seconds delay for timeout)
-	-- NOTE:
-	-- APNS pushes are pipelined. If one push triggers an error, APNS returns an error frame and closes the connection.
-	-- All pushes pipelined *after* the unsuccessful push are lost and have to be retried.
-	-- All pushes pipelined *before* the unsuccessful push were successful.
-	pending_pushes[id] = {event = event, timer = stoppable_timer(2, function()
-		local error_id, status, statuscode = receive_error(0);		-- don't wait, just try to receive already pending errors
-		local repush = {};
-		if type(error_id) == "boolean" and not error_id then		-- no error
-			module:log("debug", "Cleaning up successful push ID %s (timer triggered)...", tostring(id));
-			pending_pushes[id]["timer"]:stop();
-			pending_pushes[id]["event"].async_callback(false);		-- timeout --> no error occured
-			pending_pushes[id] = nil;
-			-- remove this id from odered_push_ids table, too
-			for i, push_id in ipairs(ordered_push_ids) do
-				if push_id == id then table.remove(ordered_push_ids, i); break; end
+	cq:wrap(function()
+		-- create new tls context and connection if not already connected
+		if connection == nil then
+			module:log("debug", "Creating new connection to APNS server '%s'...", push_host);
+			
+			-- create new tls context
+			local ctx = openssl_ctx.new("TLSv1_2", false);
+			ctx:setCipherList(ciphers);
+			ctx:setOptions(default_tls_options);
+			ctx:setEphemeralKey(pkey.new{ type = "EC", curve = "prime256v1" });
+			local store = ctx:getStore();
+			store:add(capath);
+			ctx:setVerify(openssl_ctx.VERIFY_PEER);
+			if test_environment then ctx:setVerify(openssl_ctx.VERIFY_NONE); end
+			ctx:setCertificate(x509.new(certstring));
+			ctx:setPrivateKey(pkey.new(keystring));
+			
+			-- create new connection
+			local err, errno;
+			connection, err, errno = http_client.connect({
+				host = push_host;
+				port = push_port;
+				tls = true;
+				version = 2;
+				ctx = ctx;
+			});
+			if connection == nil then
+				module:log("error", "APNS connect error %s: %s", tostring(errno), tostring(err));
+				async_callback("Error connecting to APNS server");
+				return;
 			end
-		elseif type(error_id) == "boolean" and error_id then		-- read error
-			module:log("warn", "APNS read error --> resending *all* pending pushes...");
-			repush = pending_pushes;		-- resend all
-			-- stop all timers (we need new ones for resending pushes)
-			for push_id, push_table in pairs(pending_pushes) do
-				push_table["timer"]:stop();
-			end
-			-- clear all pending pushes
-			pending_pushes = {};
-			ordered_push_ids = {};
-		elseif type(error_id) ~= "boolean" then				-- error frame (error_id contains push id)
-			module:log("warn", "APNS push error for ID '%s' --> resending all following pushes...", error_id);
-			local error_id_found = false;
-			for i, push_id in ipairs(ordered_push_ids) do
-				module:log("debug", "Queue entry %d: %s", i, tostring(push_id))
-				pending_pushes[push_id]["timer"]:stop();	-- stop all timers (we need new ones for resending pushes)
-				if push_id == error_id then			-- this push had an error
-					error_id_found = true;
-					if statuscode == 008 or statuscode == 005 then
-						-- add unregister token to prosody event queue
-						module:log("debug", "Adding unregister-push-token to prosody event queue...");
-						module:add_timer(1e-06, function()
-							module:log("warn", "Unregistering failing APNS token %s", tostring(settings["token"]))
-							module:fire_event("unregister-push-token", {token = tostring(settings["token"]), type = "apns"})
-						end)
-					end
-					pending_pushes[push_id]["event"].async_callback("APNS error: "..tostring(status));	-- --> an error occured
-				elseif not error_id_found then		-- every push *before* this error was successfull
-					module:log("debug", "Cleaning up successful push ID %s (error triggered)...", tostring(push_id));
-					pending_pushes[push_id]["event"].async_callback(false);		-- --> no error occured
-				else							-- every push *after* this error has to be resent
-					repush[push_id] = pending_pushes[push_id];		-- add to resend queue
-				end
-			end
-			-- clear all pending pushes
-			pending_pushes = {};
-			ordered_push_ids = {};
 		end
-		-- resend queued pushes after 100ms delay
-		stoppable_timer(0.1, function()
-			for push_id, push_table in pairs(repush) do
-				local retval = apns_handler(push_table["event"]);
-				if type(retval) ~= "boolean" or not retval then
-					push_table["event"].async_callback("REpush error: "..tostring(retval));		-- --> a synchronous error occured
-				end
+		
+		-- create new stream for our request
+		module:log("debug", "Creating new http/2 stream...");
+		local stream, err, errno, ok;
+		stream, err, errno = connection:new_stream();
+		if stream == nil then
+			module:log("error", "APNS new_stream error %s: %s", tostring(errno), tostring(err));
+			async_callback("Error creating new APNS request");
+			connection = nil;
+			return;
+		end
+		
+		-- write request
+		module:log("debug", "Writing http/2 request...");
+		local req_headers = new_headers();
+		req_headers:append(":method", "POST");
+		req_headers:append(":scheme", "https");
+		req_headers:upsert(":path", "/3/device/"..settings["token"]);
+		req_headers:upsert("content-length", string.format("%d", #payload));
+		req_headers:upsert("apns-topic", priority == "voip" and topic..".voip" or topic);
+		req_headers:upsert("apns-expiration", tostring(push_ttl));
+		if priority == "high" then
+			module:log("debug", "high: push_type: alert, priority: 10, collapse-id: xmpp-body-push");
+			req_headers:upsert("apns-push-type", "alert");
+			req_headers:upsert("apns-priority", "10");
+			req_headers:upsert("apns-collapse-id", "xmpp-body-push");
+		elseif priority == "voip" then
+			module:log("debug", "voip: push_type: alert, priority: 10, collapse-id: xmpp-voip-push");
+			req_headers:upsert("apns-push-type", "alert");
+			req_headers:upsert("apns-priority", "10");
+			req_headers:upsert("apns-collapse-id", "xmpp-voip-push");
+		else
+			module:log("debug", "silent: push_type: background, priority: 5, collapse-id: xmpp-nobody-push");
+			req_headers:upsert("apns-push-type", "background");
+			req_headers:upsert("apns-priority", "5");
+			req_headers:upsert("apns-collapse-id", "xmpp-nonbody-push");
+		end
+		ok, err, errno = stream:write_headers(req_headers, false);
+		if not ok then
+			stream:shutdown();
+			module:log("error", "APNS write_headers error %s: %s", tostring(errno), tostring(err));
+			async_callback("Error writing request headers to APNS server");
+			connection = nil;
+			return;
+		end
+		module:log("debug", "payload: %s", payload);
+		ok, err, errno = stream:write_body_from_string(payload)
+		if not ok then
+			stream:shutdown();
+			module:log("error", "APNS write_body_from_string error %s: %s", tostring(errno), tostring(err));
+			async_callback("Error writing request body to APNS server");
+			connection = nil;
+			return;
+		end
+		
+		-- read response
+		module:log("debug", "Reading http/2 response...");
+		local headers;
+		-- Skip through 1xx informational headers.
+		-- From RFC 7231 Section 6.2: "A user agent MAY ignore unexpected 1xx responses"
+		repeat
+			headers, err, errno = stream:get_headers();
+			if headers == nil then
+				stream:shutdown();
+				module:log("error", "APNS get_headers error %s: %s", tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
+				async_callback("Error reading response headers from APNS server");
+				connection = nil;
+				return;
 			end
-		end)
-	end)};
-	table.insert(ordered_push_ids, id)
-	
-	-- send frame
-	module:log("debug", "sending out frame with id '%s'...", id);
-	local success, err = conn:send(frame);
-	if success ~= string.len(frame) then
-		module:log("warn", "Could not send data to APNS socket: %s (will retry in timer)", tostring(err));
-	end
+		until not non_final_status(headers:get(":status"))
+		
+		-- close stream and check response
+		local body, err, errno = stream:get_body_as_string();
+		stream:shutdown();
+		if body == nil then
+			module:log("error", "APNS get_body_as_string error %s: %s", tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
+			async_callback("Error reading response body from APNS server");
+			connection = nil;
+			return;
+		end
+		local status = headers:get(":status");
+		local response = json.decode(body);
+		module:log("debug", "APNS response body(%s): %s", tostring(status), tostring(body));
+		module:log("debug", "Decoded APNS response body(%s): %s", tostring(status), pretty.write(response));
+		if status == "200" then
+			async_callback(false);
+			return;
+		end
+		
+		-- process returned errors
+		module:log("info", "APNS error response %s: %s", tostring(status), tostring(response["reason"]));
+		async_callback(string.format("APNS error response %s: %s", tostring(status), tostring(response["reason"])));
+		if
+		(status == "400" and response["reason"] == "BadDeviceToken") or
+		(status == "400" and response["reason"] == "DeviceTokenNotForTopic") or
+		(status == "410" and response["reason"] == "Unregistered")
+		then
+			unregister_token(settings["token"]);
+		end
+		
+		-- try again on idle timeout
+		if status == "400" and response["reason"] == "IdleTimeout" then
+			connection = nil;
+			return module:fire_event("incoming-push-to-apns", event);
+		end
+	end);
 	
 	return true;		-- signal the use of use async iq responses
 end
 
--- timers
-local function query_feedback_service()
-	local conn;
-	module:log("info", "Connecting to APNS feedback service");
-	conn = init_connection(nil, feedback_host, feedback_port, 8);	-- use 8 second read timeout
-	if not conn then	-- error occured
-		return feedback_request_interval;		-- run timer again
-	end
-	
-	repeat
-		local feedback, err = conn:receive(6);
-		if err ~= "wantread" then
-			if err == "timeout" or err == "closed" then		-- no error occured (no data left)
-				module:log("info", "No more APNS errors left on feedback service");
-				break;
-			end
-			if err then
-				module:log("error", "Could not receive data from APNS feedback socket (receive 1): %s", tostring(err));
-				break;
-			end
-			local timestamp = bin2long(string.sub(feedback, 1, 4));
-			local token_length = bin2short(string.sub(feedback, 5, 6));
-			
-			feedback, err = conn:receive(token_length);
-			if err then		-- timeout is also an error here, since the frame is incomplete in this case
-				module:log("error", "Could not receive data from APNS feedback socket (receive 2): %s", tostring(err));
-				break;
-			end
-			local token = bin2hex(string.sub(feedback, 1, token_length));
-			module:log("info", "Got feedback service entry for token '%s' timestamped with '%s", token, datetime.datetime(timestamp));
-			
-			if not module:fire_event("unregister-push-token", {token = token, type = "apns", timestamp = timestamp}) then
-				module:log("warn", "Could not unregister push token");
-			end
-		end
-	until false;
-	close_connection(conn);
-	return feedback_request_interval;		-- run timer again
-end
-
 -- setup
+certstring = readAll(apns_cert);
+keystring = readAll(apns_key);
 module:hook("incoming-push-to-apns", apns_handler);
-module:add_timer(feedback_request_interval, query_feedback_service);
 module:log("info", "Appserver APNS submodule loaded");
-query_feedback_service();	-- query feedback service directly after module load
 function module.unload()
 	if module.unhook then
 		module:unhook("incoming-push-to-apns", apns_handler);
