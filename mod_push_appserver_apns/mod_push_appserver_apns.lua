@@ -45,8 +45,8 @@ local default_tls_options = openssl_ctx.OP_NO_COMPRESSION + openssl_ctx.OP_SINGL
 
 -- global state
 local connection = nil;
-local certstring;
-local keystring;
+local certstring = "";
+local keystring  = "";
 
 -- general utility functions
 local function non_final_status(status)
@@ -64,7 +64,7 @@ local function unregister_token(token)
 	module:add_timer(1e-06, function()
 		module:log("warn", "Unregistering failing APNS token %s", tostring(token))
 		module:fire_event("unregister-push-token", {token = tostring(token), type = "apns"})
-	end)
+	end);
 end
 
 -- handlers
@@ -80,6 +80,13 @@ local function apns_handler(event)
 		payload = '{"aps":{'..(mutable_content and '"mutable-content":"1",' or '')..'"alert":{"title":"New Message", "body":"New Message"}, "sound":"default"}}';
 	else
 		payload = '{"aps":{"content-available":1}}';
+	end
+	
+	local function retry()
+		connection = nil;
+		module:add_timer(1, function()
+			module:fire_event("incoming-push-to-apns", event);
+		end);
 	end
 	
 	cq:wrap(function()
@@ -154,19 +161,15 @@ local function apns_handler(event)
 		ok, err, errno = stream:write_headers(req_headers, false);
 		if not ok then
 			stream:shutdown();
-			module:log("error", "APNS write_headers error %s: %s", tostring(errno), tostring(err));
-			async_callback("Error writing request headers to APNS server");
-			connection = nil;
-			return;
+			module:log("error", "retrying: APNS write_headers error %s: %s", tostring(errno), tostring(err));
+			return retry();
 		end
 		module:log("debug", "payload: %s", payload);
 		ok, err, errno = stream:write_body_from_string(payload)
 		if not ok then
 			stream:shutdown();
-			module:log("error", "APNS write_body_from_string error %s: %s", tostring(errno), tostring(err));
-			async_callback("Error writing request body to APNS server");
-			connection = nil;
-			return;
+			module:log("error", "retrying: APNS write_body_from_string error %s: %s", tostring(errno), tostring(err));
+			return retry();
 		end
 		
 		-- read response
@@ -178,10 +181,8 @@ local function apns_handler(event)
 			headers, err, errno = stream:get_headers();
 			if headers == nil then
 				stream:shutdown();
-				module:log("error", "APNS get_headers error %s: %s", tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
-				async_callback("Error reading response headers from APNS server");
-				connection = nil;
-				return;
+				module:log("error", "retrying: APNS get_headers error %s: %s", tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
+				return retry();
 			end
 		until not non_final_status(headers:get(":status"))
 		
@@ -189,10 +190,8 @@ local function apns_handler(event)
 		local body, err, errno = stream:get_body_as_string();
 		stream:shutdown();
 		if body == nil then
-			module:log("error", "APNS get_body_as_string error %s: %s", tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
-			async_callback("Error reading response body from APNS server");
-			connection = nil;
-			return;
+			module:log("error", "retrying: APNS get_body_as_string error %s: %s", tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
+			return retry();
 		end
 		local status = headers:get(":status");
 		local response = json.decode(body);
@@ -216,8 +215,7 @@ local function apns_handler(event)
 		
 		-- try again on idle timeout
 		if status == "400" and response["reason"] == "IdleTimeout" then
-			connection = nil;
-			return module:fire_event("incoming-push-to-apns", event);
+			return retry();
 		end
 	end);
 	
