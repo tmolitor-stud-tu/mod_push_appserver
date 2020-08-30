@@ -136,8 +136,8 @@ local function apns_handler(event)
 		-- write request
 		module:log("debug", "Writing http/2 request...");
 		local req_headers = new_headers();
-		req_headers:append(":method", "POST");
-		req_headers:append(":scheme", "https");
+		req_headers:upsert(":method", "POST");
+		req_headers:upsert(":scheme", "https");
 		req_headers:upsert(":path", "/3/device/"..settings["token"]);
 		req_headers:upsert("content-length", string.format("%d", #payload));
 		req_headers:upsert("apns-topic", priority == "voip" and topic..".voip" or topic);
@@ -158,14 +158,14 @@ local function apns_handler(event)
 			req_headers:upsert("apns-priority", "5");
 			req_headers:upsert("apns-collapse-id", "xmpp-nonbody-push");
 		end
-		ok, err, errno = stream:write_headers(req_headers, false);
+		ok, err, errno = stream:write_headers(req_headers, false, 2);
 		if not ok then
 			stream:shutdown();
 			module:log("error", "retrying: APNS write_headers error %s: %s", tostring(errno), tostring(err));
 			return retry();
 		end
 		module:log("debug", "payload: %s", payload);
-		ok, err, errno = stream:write_body_from_string(payload)
+		ok, err, errno = stream:write_body_from_string(payload, 2)
 		if not ok then
 			stream:shutdown();
 			module:log("error", "retrying: APNS write_body_from_string error %s: %s", tostring(errno), tostring(err));
@@ -178,7 +178,7 @@ local function apns_handler(event)
 		-- Skip through 1xx informational headers.
 		-- From RFC 7231 Section 6.2: "A user agent MAY ignore unexpected 1xx responses"
 		repeat
-			headers, err, errno = stream:get_headers();
+			headers, err, errno = stream:get_headers(2);
 			if headers == nil then
 				stream:shutdown();
 				module:log("error", "retrying: APNS get_headers error %s: %s", tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
@@ -187,7 +187,7 @@ local function apns_handler(event)
 		until not non_final_status(headers:get(":status"))
 		
 		-- close stream and check response
-		local body, err, errno = stream:get_body_as_string();
+		local body, err, errno = stream:get_body_as_string(2);
 		stream:shutdown();
 		if body == nil then
 			module:log("error", "retrying: APNS get_body_as_string error %s: %s", tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
