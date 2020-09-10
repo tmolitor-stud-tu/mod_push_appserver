@@ -12,7 +12,6 @@ local cq = require "net.cqueues".cq;
 local http_client = require "http.client";
 local new_headers = require "http.headers".new;
 local ce = require "cqueues.errno";
-local new_tls_context = require "http.tls".new_client_context;
 local openssl_ctx = require "openssl.ssl.context";
 local x509 = require "openssl.x509";
 local pkey = require "openssl.pkey";
@@ -108,6 +107,7 @@ local function apns_handler(event)
 			
 			-- create new connection
 			local err, errno;
+			connection = true;		-- prevent multiple parallel connections (http_client.connect() is async)
 			connection, err, errno = http_client.connect({
 				host = push_host;
 				port = push_port;
