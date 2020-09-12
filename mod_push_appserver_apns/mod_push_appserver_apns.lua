@@ -9,6 +9,7 @@
 
 -- imports
 local cq = require "net.cqueues".cq;
+local promise = require "cqueues.promise";
 local http_client = require "http.client";
 local new_headers = require "http.headers".new;
 local ce = require "cqueues.errno";
@@ -43,7 +44,7 @@ if test_environment then push_host = "localhost"; end
 local default_tls_options = openssl_ctx.OP_NO_COMPRESSION + openssl_ctx.OP_SINGLE_ECDH_USE + openssl_ctx.OP_NO_SSLv2 + openssl_ctx.OP_NO_SSLv3;
 
 -- global state
-local connection = nil;
+local connection_promise = nil;
 local certstring = "";
 local keystring  = "";
 
@@ -82,7 +83,8 @@ local function apns_handler(event)
 	end
 	
 	local function retry()
-		connection = nil;
+		-- reset promise to restart connection
+		connection_promise = nil;
 		module:add_timer(1, function()
 			module:fire_event("incoming-push-to-apns", event);
 		end);
@@ -90,8 +92,10 @@ local function apns_handler(event)
 	
 	cq:wrap(function()
 		-- create new tls context and connection if not already connected
-		if connection == nil then
-			module:log("debug", "Creating new connection to APNS server '%s'...", push_host);
+		-- this uses a cqueues promise to make sure we're not connecting twice
+		if connection_promise == nil then
+			connection_promise = promise.new();
+			module:log("info", "Creating new connection to APNS server '%s'...", push_host);
 			
 			-- create new tls context
 			local ctx = openssl_ctx.new("TLSv1_2", false);
@@ -105,10 +109,8 @@ local function apns_handler(event)
 			ctx:setCertificate(x509.new(certstring));
 			ctx:setPrivateKey(pkey.new(keystring));
 			
-			-- create new connection
-			local err, errno;
-			connection = true;		-- prevent multiple parallel connections (http_client.connect() is async)
-			connection, err, errno = http_client.connect({
+			-- create new connection and log possible errors
+			local connection, err, errno = http_client.connect({
 				host = push_host;
 				port = push_port;
 				tls = true;
@@ -117,105 +119,117 @@ local function apns_handler(event)
 			});
 			if connection == nil then
 				module:log("error", "APNS connect error %s: %s", tostring(errno), tostring(err));
-				async_callback("Error connecting to APNS server");
+				connection_promise:set(false, {error = err, errno = errno});
+			else
+				connection_promise:set(true, connection);
+			end
+		end
+		
+		-- wait for connection establishment before continuing by waiting for the connection promise which wraps the connection object
+		local ok, errobj = pcall(function()
+			local stream, err, errno, ok;
+			-- this waits for the resolution of the promise and either returns the connection object or throws an error
+			-- (whicht will be caught by the wrapping pcall)
+			local connection = connection_promise:get();
+			
+			-- create new stream for our request
+			module:log("debug", "Creating new http/2 stream...");
+			stream, err, errno = connection:new_stream();
+			if stream == nil then
+				module:log("error", "APNS new_stream error %s: %s", tostring(errno), tostring(err));
+				async_callback("Error creating new APNS request");
+				connection_promise = nil;
 				return;
 			end
-		end
-		
-		-- create new stream for our request
-		module:log("debug", "Creating new http/2 stream...");
-		local stream, err, errno, ok;
-		stream, err, errno = connection:new_stream();
-		if stream == nil then
-			module:log("error", "APNS new_stream error %s: %s", tostring(errno), tostring(err));
-			async_callback("Error creating new APNS request");
-			connection = nil;
-			return;
-		end
-		
-		-- write request
-		module:log("debug", "Writing http/2 request...");
-		local req_headers = new_headers();
-		req_headers:upsert(":method", "POST");
-		req_headers:upsert(":scheme", "https");
-		req_headers:upsert(":path", "/3/device/"..settings["token"]);
-		req_headers:upsert("content-length", string.format("%d", #payload));
-		req_headers:upsert("apns-topic", priority == "voip" and topic..".voip" or topic);
-		req_headers:upsert("apns-expiration", tostring(push_ttl));
-		if priority == "high" then
-			module:log("debug", "high: push_type: alert, priority: 10, collapse-id: xmpp-body-push");
-			req_headers:upsert("apns-push-type", "alert");
-			req_headers:upsert("apns-priority", "10");
-			req_headers:upsert("apns-collapse-id", "xmpp-body-push");
-		elseif priority == "voip" then
-			module:log("debug", "voip: push_type: alert, priority: 10, collapse-id: xmpp-voip-push");
-			req_headers:upsert("apns-push-type", "alert");
-			req_headers:upsert("apns-priority", "10");
-			req_headers:upsert("apns-collapse-id", "xmpp-voip-push");
-		else
-			module:log("debug", "silent: push_type: background, priority: 5, collapse-id: xmpp-nobody-push");
-			req_headers:upsert("apns-push-type", "background");
-			req_headers:upsert("apns-priority", "5");
-			req_headers:upsert("apns-collapse-id", "xmpp-nonbody-push");
-		end
-		ok, err, errno = stream:write_headers(req_headers, false, 2);
-		if not ok then
-			stream:shutdown();
-			module:log("error", "retrying: APNS write_headers error %s: %s", tostring(errno), tostring(err));
-			return retry();
-		end
-		module:log("debug", "payload: %s", payload);
-		ok, err, errno = stream:write_body_from_string(payload, 2)
-		if not ok then
-			stream:shutdown();
-			module:log("error", "retrying: APNS write_body_from_string error %s: %s", tostring(errno), tostring(err));
-			return retry();
-		end
-		
-		-- read response
-		module:log("debug", "Reading http/2 response...");
-		local headers;
-		-- Skip through 1xx informational headers.
-		-- From RFC 7231 Section 6.2: "A user agent MAY ignore unexpected 1xx responses"
-		repeat
-			headers, err, errno = stream:get_headers(2);
-			if headers == nil then
+			
+			-- write request
+			module:log("debug", "Writing http/2 request...");
+			local req_headers = new_headers();
+			req_headers:upsert(":method", "POST");
+			req_headers:upsert(":scheme", "https");
+			req_headers:upsert(":path", "/3/device/"..settings["token"]);
+			req_headers:upsert("content-length", string.format("%d", #payload));
+			req_headers:upsert("apns-topic", priority == "voip" and topic..".voip" or topic);
+			req_headers:upsert("apns-expiration", tostring(push_ttl));
+			if priority == "high" then
+				module:log("debug", "high: push_type: alert, priority: 10, collapse-id: xmpp-body-push");
+				req_headers:upsert("apns-push-type", "alert");
+				req_headers:upsert("apns-priority", "10");
+				req_headers:upsert("apns-collapse-id", "xmpp-body-push");
+			elseif priority == "voip" then
+				module:log("debug", "voip: push_type: alert, priority: 10, collapse-id: xmpp-voip-push");
+				req_headers:upsert("apns-push-type", "alert");
+				req_headers:upsert("apns-priority", "10");
+				req_headers:upsert("apns-collapse-id", "xmpp-voip-push");
+			else
+				module:log("debug", "silent: push_type: background, priority: 5, collapse-id: xmpp-nobody-push");
+				req_headers:upsert("apns-push-type", "background");
+				req_headers:upsert("apns-priority", "5");
+				req_headers:upsert("apns-collapse-id", "xmpp-nonbody-push");
+			end
+			ok, err, errno = stream:write_headers(req_headers, false, 2);
+			if not ok then
 				stream:shutdown();
-				module:log("error", "retrying: APNS get_headers error %s: %s", tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
+				module:log("error", "retrying: APNS write_headers error %s: %s", tostring(errno), tostring(err));
 				return retry();
 			end
-		until not non_final_status(headers:get(":status"))
-		
-		-- close stream and check response
-		local body, err, errno = stream:get_body_as_string(2);
-		stream:shutdown();
-		if body == nil then
-			module:log("error", "retrying: APNS get_body_as_string error %s: %s", tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
-			return retry();
-		end
-		local status = headers:get(":status");
-		local response = json.decode(body);
-		module:log("debug", "APNS response body(%s): %s", tostring(status), tostring(body));
-		module:log("debug", "Decoded APNS response body(%s): %s", tostring(status), pretty.write(response));
-		if status == "200" then
-			async_callback(false);
-			return;
-		end
-		
-		-- process returned errors
-		module:log("info", "APNS error response %s: %s", tostring(status), tostring(response["reason"]));
-		async_callback(string.format("APNS error response %s: %s", tostring(status), tostring(response["reason"])));
-		if
-		(status == "400" and response["reason"] == "BadDeviceToken") or
-		(status == "400" and response["reason"] == "DeviceTokenNotForTopic") or
-		(status == "410" and response["reason"] == "Unregistered")
-		then
-			unregister_token(settings["token"]);
-		end
-		
-		-- try again on idle timeout
-		if status == "400" and response["reason"] == "IdleTimeout" then
-			return retry();
+			module:log("debug", "payload: %s", payload);
+			ok, err, errno = stream:write_body_from_string(payload, 2)
+			if not ok then
+				stream:shutdown();
+				module:log("error", "retrying: APNS write_body_from_string error %s: %s", tostring(errno), tostring(err));
+				return retry();
+			end
+			
+			-- read response
+			module:log("debug", "Reading http/2 response...");
+			local headers;
+			-- Skip through 1xx informational headers.
+			-- From RFC 7231 Section 6.2: "A user agent MAY ignore unexpected 1xx responses"
+			repeat
+				headers, err, errno = stream:get_headers(2);
+				if headers == nil then
+					stream:shutdown();
+					module:log("error", "retrying: APNS get_headers error %s: %s", tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
+					return retry();
+				end
+			until not non_final_status(headers:get(":status"))
+			
+			-- close stream and check response
+			local body, err, errno = stream:get_body_as_string(2);
+			stream:shutdown();
+			if body == nil then
+				module:log("error", "retrying: APNS get_body_as_string error %s: %s", tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
+				return retry();
+			end
+			local status = headers:get(":status");
+			local response = json.decode(body);
+			module:log("debug", "APNS response body(%s): %s", tostring(status), tostring(body));
+			module:log("debug", "Decoded APNS response body(%s): %s", tostring(status), pretty.write(response));
+			if status == "200" then
+				async_callback(false);
+				return;
+			end
+			
+			-- process returned errors
+			module:log("info", "APNS error response %s: %s", tostring(status), tostring(response["reason"]));
+			async_callback(string.format("APNS error response %s: %s", tostring(status), tostring(response["reason"])));
+			if
+			(status == "400" and response["reason"] == "BadDeviceToken") or
+			(status == "400" and response["reason"] == "DeviceTokenNotForTopic") or
+			(status == "410" and response["reason"] == "Unregistered")
+			then
+				unregister_token(settings["token"]);
+			end
+			
+			-- try again on idle timeout
+			if status == "400" and response["reason"] == "IdleTimeout" then
+				return retry();
+			end
+		end);
+		if not ok then
+			module:log("error", "Catched APNS error: %s", tostring(errobj));
+			async_callback("Error sending APNS request");
 		end
 	end);
 	
