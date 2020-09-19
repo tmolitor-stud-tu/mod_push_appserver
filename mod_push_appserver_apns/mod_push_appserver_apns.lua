@@ -43,6 +43,11 @@ local push_port = 443;
 if test_environment then push_host = "localhost"; end
 local default_tls_options = openssl_ctx.OP_NO_COMPRESSION + openssl_ctx.OP_SINGLE_ECDH_USE + openssl_ctx.OP_NO_SSLv2 + openssl_ctx.OP_NO_SSLv3;
 
+-- check config
+assert(apns_cert ~= nil, "You need to set 'push_appserver_apns_cert'")
+assert(apns_key ~= nil, "You need to set 'push_appserver_apns_key'")
+assert(topic ~= nil, "You need to set 'push_appserver_apns_topic'")
+
 -- global state
 local connection_promise = nil;
 local certstring = "";
@@ -149,6 +154,7 @@ local function apns_handler(event)
 			req_headers:upsert(":scheme", "https");
 			req_headers:upsert(":path", "/3/device/"..settings["token"]);
 			req_headers:upsert("content-length", string.format("%d", #payload));
+			module:log("debug", "APNS topic: %s (%s)", tostring(topic), tostring(priority == "voip" and topic..".voip" or topic));
 			req_headers:upsert("apns-topic", priority == "voip" and topic..".voip" or topic);
 			req_headers:upsert("apns-expiration", tostring(push_ttl));
 			if priority == "high" then

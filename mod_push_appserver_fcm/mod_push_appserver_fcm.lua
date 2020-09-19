@@ -27,6 +27,9 @@ local push_ttl = module:get_option_number("push_appserver_fcm_push_ttl", nil);		
 local push_priority = module:get_option_string("push_appserver_fcm_push_priority", "high");		--high priority pushes (can be "high" or "normal")
 local push_endpoint = "https://fcm.googleapis.com/fcm/send";
 
+-- check config
+assert(fcm_key ~= nil, "You need to set 'push_appserver_fcm_key'")
+
 -- high level network (https) functions
 local function send_request(data, callback)
 	local x = {
