@@ -234,7 +234,7 @@ local function apns_handler(event)
 			end
 		end);
 		if not ok then
-			module:log("error", "Catched APNS error: %s", tostring(errobj));
+			module:log("error", "Catched APNS error: %s", pretty.write(errobj));
 			async_callback("Error sending APNS request");
 		end
 	end);
