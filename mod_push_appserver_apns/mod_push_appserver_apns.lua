@@ -234,7 +234,8 @@ local function apns_handler(event)
 			end
 		end);
 		if not ok then
-			module:log("error", "Catched APNS error: %s", pretty.write(errobj));
+			module:log("error", "Catched APNS (connect) error: %s", pretty.write(errobj));
+			connection_promise = nil;		--retry connection next time
 			async_callback("Error sending APNS request");
 		end
 	end);
