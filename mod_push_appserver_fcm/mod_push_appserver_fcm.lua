@@ -1,6 +1,6 @@
 -- mod_push_appserver_fcm
 --
--- Copyright (C) 2017 Thilo Molitor
+-- Copyright (C) 2017-2020 Thilo Molitor
 --
 -- This file is MIT/X11 licensed.
 --

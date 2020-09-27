@@ -1,6 +1,6 @@
 -- mod_push_appserver
 --
--- Copyright (C) 2017 Thilo Molitor
+-- Copyright (C) 2017-2020 Thilo Molitor
 --
 -- This file is MIT/X11 licensed.
 --
@@ -21,7 +21,7 @@ local uuid = require "util.uuid".generate;
 if have_id then
 	uuid = id.medium;
 end
-local t = module:require "throttle";
+local t = require "util.throttle"
 local string = string;
 
 -- configuration
