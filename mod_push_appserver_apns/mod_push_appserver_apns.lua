@@ -137,14 +137,17 @@ local function apns_handler(event)
 			-- (whicht will be caught by the wrapping pcall)
 			local connection = connection_promise:get();
 			
+			if connection.recv_goaway_lowest then		-- check for goaway (is there any api method for this??)
+				module:log("error", "reconnecting because we received a GOAWAY frame: %s", tostring(connection.recv_goaway_lowest));
+				return retry();
+			end
+				
 			-- create new stream for our request
 			module:log("debug", "Creating new http/2 stream...");
 			stream, err, errno = connection:new_stream();
 			if stream == nil then
-				module:log("error", "APNS new_stream error %s: %s", tostring(errno), tostring(err));
-				async_callback("Error creating new APNS request");
-				connection_promise = nil;
-				return;
+				module:log("error", "retrying: APNS new_stream error %s: %s", tostring(errno), tostring(err));
+				return retry();
 			end
 			
 			-- write request
