@@ -7,7 +7,11 @@
 -- Submodule implementing APNS communication
 --
 
+-- this is the master module
+module:depends("push_appserver");
+
 -- imports
+local appserver_global = module:shared("*/push_appserver/appserver_global");
 local cq = require "net.cqueues".cq;
 local promise = require "cqueues.promise";
 local http_client = require "http.client";
@@ -17,10 +21,6 @@ local openssl_ctx = require "openssl.ssl.context";
 local x509 = require "openssl.x509";
 local pkey = require "openssl.pkey";
 local json = require "util.json";
-local pretty = require "pl.pretty";
-
--- this is the master module
-module:depends("push_appserver");
 
 -- configuration
 local test_environment = false;
@@ -214,7 +214,7 @@ local function apns_handler(event)
 			local status = headers:get(":status");
 			local response = json.decode(body);
 			module:log("debug", "APNS response body(%s): %s", tostring(status), tostring(body));
-			module:log("debug", "Decoded APNS response body(%s): %s", tostring(status), pretty.write(response));
+			module:log("debug", "Decoded APNS response body(%s): %s", tostring(status), appserver_global.pretty.write(response));
 			if status == "200" then
 				async_callback(false);
 				return;
@@ -237,7 +237,7 @@ local function apns_handler(event)
 			end
 		end);
 		if not ok then
-			module:log("error", "Catched APNS (connect) error: %s", pretty.write(errobj));
+			module:log("error", "Catched APNS (connect) error: %s", appserver_global.pretty.write(errobj));
 			connection_promise = nil;		--retry connection next time
 			async_callback("Error sending APNS request");
 		end

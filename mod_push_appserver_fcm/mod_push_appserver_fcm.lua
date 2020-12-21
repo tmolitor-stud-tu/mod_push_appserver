@@ -7,12 +7,12 @@
 -- Submodule implementing FCM communication
 --
 
-local http = require "net.http";
-local json = require "util.json";
-local pretty = require "pl.pretty";
-
 -- this is the master module
 module:depends("push_appserver");
+
+local appserver_global = module:shared("*/push_appserver/appserver_global");
+local http = require "net.http";
+local json = require "util.json";
 
 -- configuration
 local fcm_key = module:get_option_string("push_appserver_fcm_key", nil);						--push api key (no default)
@@ -90,7 +90,7 @@ local function fcm_handler(event)
 			return;
 		end
 		response = json.decode(response);
-		module:log("debug", "decoded: %s", pretty.write(response));
+		module:log("debug", "decoded: %s", appserver_global.pretty.write(response));
 		
 		-- handle errors
 		if response.failure > 0 then

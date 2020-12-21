@@ -36,10 +36,6 @@ Component "push.example.org" "push_appserver_apns"
 	push_appserver_apns_cert = "/etc/prosody/apns_normal.crt"
 	push_appserver_apns_key = "/etc/prosody/apns_normal.key"
 	push_appserver_apns_topic = "my.app.bundle.id"
-	ssl = {
-		key = "/etc/prosody/certs/push.example.org.key";
-		certificate = "/etc/prosody/certs/push.example.org.crt";
-	}
 
 Component "voip-push.example.org" "push_appserver_apns"
 	push_appserver_debugging = false
@@ -48,10 +44,6 @@ Component "voip-push.example.org" "push_appserver_apns"
 	push_appserver_apns_cert = "/etc/prosody/apns_voip.crt"
 	push_appserver_apns_key = "/etc/prosody/apns_voip.key"
 	push_appserver_apns_topic = "my.app.bundle.id"
-	ssl = {
-		key = "/etc/prosody/certs/push2.example.org.key";
-		certificate = "/etc/prosody/certs/push2.example.org.crt";
-	}
 ```
 
 If you want to have only one component host supporting APNS *and* FCM you can use the following:  
@@ -68,10 +60,6 @@ Component "push.example.org" "push_appserver"
 	push_appserver_apns_cert = "/etc/prosody/apns_voip1.crt"
 	push_appserver_apns_key = "/etc/prosody/apns_voip1.key"
 	push_appserver_apns_topic = "my.app.bundle.id"
-	ssl = {
-		key = "/etc/prosody/certs/push.example.org.key";
-		certificate = "/etc/prosody/certs/push.example.org.crt";
-	}
 ```
 
 Or only use FCM:  
@@ -79,10 +67,6 @@ Or only use FCM:
 Component "fcm-push.example.org" "push_appserver_fcm"
 	push_appserver_debugging = false
 	push_appserver_fcm_key = "myFCMkey"
-	ssl = {
-		key = "/etc/prosody/certs/fcm-push.example.org.key";
-		certificate = "/etc/prosody/certs/fcm-push.example.org.crt";
-	}
 ```
 
 ## Usage notes (configuration)
@@ -105,8 +89,13 @@ should be used for chat apps.
   This setting will also make http forms available at all `POST` HTTP endpoints
   for easier manual testing of your setup by simply using your browser of choice.
 - **push\_appserver\_rate\_limit** *(number)*  
-  Allow this much requests per second. Default: 5.  
+  Allow this much requests per second. Default: `5`.  
   This should mitigate some DOS attacks.
+- **push\_appserver\_local\_cache** *(boolean)*  
+  Set this to `false` to deactivate local caching of device tokens and node settings.  
+  This is useful if you are using an SQL storage backend and this backend is
+  replicated across several servers in an HA- or loadbalancing-setup.  
+  Default: `true`.
 
 ### Configuration options (mod\_push\_appserver\_apns)
 

@@ -7,9 +7,14 @@
 -- Implementation of a simple push app server
 --
 
+-- depends
+module:depends("http");
+module:depends("disco");
+
 -- imports
 package.path = module:get_directory().."/?.lua;"..package.path;		-- add module path to lua search path (needed for pl)
-local pretty = require("pl.pretty")
+local appserver_global = module:shared("*/push_appserver/appserver_global");
+appserver_global.pretty = require("pl.pretty");
 local os = require "os";
 local http = require "net.http";
 local hashes = require "util.hashes";
@@ -26,8 +31,9 @@ local string = string;
 
 -- configuration
 local body_size_limit = 4096; -- 4 KB
-local debugging = module:get_option_boolean("push_appserver_debugging", false);		-- debugging (should be false on production servers)
-local rate_limit = module:get_option_number("push_appserver_rate_limit", 5);		-- allow only five pushes per second (try to mitigate DOS attacks)
+local use_local_cache = module:get_option_boolean("push_appserver_local_cache", true);	-- use cache (should be false on HA setups with multiple servers using a replicated sql database)
+local debugging = module:get_option_boolean("push_appserver_debugging", false);			-- debugging (should be false on production servers)
+local rate_limit = module:get_option_number("push_appserver_rate_limit", 5);			-- allow only five pushes per second (try to mitigate DOS attacks)
 
 -- global state
 local throttles = {}
@@ -39,67 +45,106 @@ if body_size_limit > parser_body_limit then
 	body_size_limit = parser_body_limit;
 end
 
--- depends
-module:depends("http");
-module:depends("disco");
-
 -- namespace
 local xmlns_pubsub = "http://jabber.org/protocol/pubsub";
 local xmlns_push = "urn:xmpp:push:0";
 
--- For keeping state across reloads while caching reads
-local push_store = (function()
-	local store = module:open_store();
-	local cache = {};
-	local token2node_cache = {};
-	local api = {};
-	function api:get(node)
-		if not cache[node] then
-			local err;
-			cache[node], err = store:get(node);
-			if not cache[node] and err then
-				module:log("error", "Error reading push notification storage for node '%s': %s", node, tostring(err));
-				cache[node] = {};
-				return cache[node], false;
+local push_store;
+if use_local_cache then
+	-- For keeping state across reloads while caching reads
+	push_store = (function()
+		local store = module:open_store();
+		local cache = {};
+		local token2node_cache = {};
+		local api = {};
+		function api:get(node)
+			if not cache[node] then
+				local err;
+				cache[node], err = store:get(node);
+				if not cache[node] and err then
+					module:log("error", "Error reading push notification storage for node '%s': %s", node, tostring(err));
+					cache[node] = {};
+					return cache[node], false;
+				end
 			end
+			if not cache[node] then cache[node] = {} end
+			-- add entry to token2node cache, too
+			if cache[node].token and cache[node].node then token2node_cache[cache[node].token] = cache[node].node; end
+			return cache[node], true;
 		end
-		if not cache[node] then cache[node] = {} end
-		-- add entry to token2node cache, too
-		if cache[node].token and cache[node].node then token2node_cache[cache[node].token] = cache[node].node; end
-		return cache[node], true;
-	end
-	function api:set(node, data)
-		local settings = api:get(node);		-- load node's data
-		-- fill caches
-		cache[node] = data;
-		if settings.token and settings.node then token2node_cache[settings.token] = settings.node; end
-		local ok, err = store:set(node, cache[node]);
-		if not ok then
-			module:log("error", "Error writing push notification storage for node '%s': %s", node, tostring(err));
-			return false;
+		function api:set(node, data)
+			local settings = api:get(node);		-- load node's data
+			-- fill caches
+			cache[node] = data;
+			if settings.token and settings.node then token2node_cache[settings.token] = settings.node; end
+			local ok, err = store:set(node, cache[node]);
+			if not ok then
+				module:log("error", "Error writing push notification storage for node '%s': %s", node, tostring(err));
+				return false;
+			end
+			return true;
 		end
-		return true;
-	end
-	function api:list()
-		return store:users();
-	end
-	function api:token2node(token)
-		if token2node_cache[token] then return token2node_cache[token]; end
-		for node in store:users() do
-			local err;
-			-- read data directly, we don't want to cache full copies of stale entries as api:get() would do
+		function api:list()
+			return store:users();
+		end
+		function api:token2node(token)
+			if token2node_cache[token] then return token2node_cache[token]; end
+			for node in store:users() do
+				local err;
+				-- read data directly, we don't want to cache full copies of stale entries as api:get() would do
+				settings, err = store:get(node);
+				if not settings and err then
+					module:log("error", "Error reading push notification storage for node '%s': %s", node, tostring(err));
+					settings = {};
+				end
+				if settings.token and settings.node then token2node_cache[settings.token] = settings.node; end
+			end
+			if token2node_cache[token] then return token2node_cache[token]; end
+			return nil;
+		end
+		return api;
+	end)();
+else
+	push_store = (function()
+		local store = module:open_store();
+		local api = {};
+		function api:get(node)
 			settings, err = store:get(node);
 			if not settings and err then
 				module:log("error", "Error reading push notification storage for node '%s': %s", node, tostring(err));
-				settings = {};
+				return nil, false;
 			end
-			if settings.token and settings.node then token2node_cache[settings.token] = settings.node; end
+			if not settings then settings = {} end
+			return settings, true;
 		end
-		if token2node_cache[token] then return token2node_cache[token]; end
-		return nil;
-	end
-	return api;
-end)();
+		function api:set(node, data)
+			local settings = api:get(node);		-- load node's data
+			local ok, err = store:set(node, data);
+			if not ok then
+				module:log("error", "Error writing push notification storage for node '%s': %s", node, tostring(err));
+				return false;
+			end
+			return true;
+		end
+		function api:list()
+			return store:users();
+		end
+		function api:token2node(token)
+			for node in store:users() do
+				local err;
+				-- read data directly, we don't want to cache full copies of stale entries as api:get() would do
+				settings, err = store:get(node);
+				if not settings and err then
+					module:log("error", "Error reading push notification storage for node '%s': %s", node, tostring(err));
+					settings = {};
+				end
+				if settings.token and settings.node and settings.token == token then return settings.node; end
+			end
+			return nil;
+		end
+		return api;
+	end)();
+end
 
 -- throttling (try to prevent denial of service attacks)
 local function create_throttle(node)
@@ -135,7 +180,7 @@ local function register_node(arguments)
 			settings["token"] == arguments["token"] and "same token" or "token changed");
 		settings["token"] = arguments["token"];
 		settings["renewed"] = datetime.datetime();
-		module:log("debug", "settings: %s", pretty.write(settings));
+		module:log("debug", "settings: %s", appserver_global.pretty.write(settings));
 		push_store:set(arguments["node"], settings);
 		return settings;
 	end
@@ -146,7 +191,7 @@ local function register_node(arguments)
 	settings["secret"]     = hashes.hmac_sha256(arguments["type"]..":"..arguments["token"].."@"..arguments["node"], os.clock(), true);
 	settings["token"]      = arguments["token"];
 	settings["registered"] = datetime.datetime();
-	module:log("debug", "settings: %s", pretty.write(settings));
+	module:log("debug", "settings: %s", appserver_global.pretty.write(settings));
 	push_store:set(arguments["node"], settings);
 	return settings;
 end
@@ -292,7 +337,7 @@ local function unregister_push_node(node, type)
 		push_store:set(node, nil);
 		throttles[node] = nil;
 		module:log("info", "Unregistered push device, returning: 'OK', '%s', '%s'", tostring(node), tostring(settings["secret"]));
-		module:log("debug", "settings were: %s", pretty.write(settings));
+		module:log("debug", "settings were: %s", appserver_global.pretty.write(settings));
 		return "OK\n"..node.."\n"..settings["secret"];
 	end
 	
@@ -437,7 +482,7 @@ local function serve_settings_v1(event, path)
 	end
 	path = path:match("^([^/]+).*$");
 	local settings = push_store:get(path);
-	return output..'<a href="../settings">Back to List</a><br>\n<pre>'..pretty.write(settings).."</pre>"..footer;
+	return output..'<a href="../settings">Back to List</a><br>\n<pre>'..appserver_global.pretty.write(settings).."</pre>"..footer;
 end
 
 local function serve_health_v1(event, path)
