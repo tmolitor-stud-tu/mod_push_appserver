@@ -14,7 +14,7 @@ module:depends("disco");
 -- imports
 package.path = module:get_directory().."/?.lua;"..package.path;		-- add module path to lua search path (needed for pl)
 local appserver_global = module:shared("*/push_appserver/appserver_global");
-appserver_global.pretty = require("pl.pretty");
+if not appserver_global.pretty then appserver_global.pretty = require("pl.pretty"); end
 local os = require "os";
 local http = require "net.http";
 local hashes = require "util.hashes";

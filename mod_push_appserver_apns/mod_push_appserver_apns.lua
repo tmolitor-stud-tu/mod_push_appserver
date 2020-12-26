@@ -100,7 +100,7 @@ local function apns_handler(event)
 		-- this uses a cqueues promise to make sure we're not connecting twice
 		if connection_promise == nil then
 			connection_promise = promise.new();
-			module:log("info", "Creating new connection to APNS server '%s'...", push_host);
+			module:log("info", "Creating new connection to APNS server '%s:%s'...", push_host, tostring(push_port));
 			
 			-- create new tls context
 			local ctx = openssl_ctx.new("TLSv1_2", false);
