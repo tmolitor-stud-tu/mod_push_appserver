@@ -184,30 +184,33 @@ Example XMPP flow for registering a device:
 <iq to="push.example.org" id="MyID-6465" type="set">
 	<command xmlns="http://jabber.org/protocol/commands" node="v1-register-push" action="execute">
 		<x xmlns="jabber:x:data" type="submit">
+		<field type='hidden' var='FORM_TYPE'>
+			<value>https://github.com/tmolitor-stud-tu/mod_push_appserver/#v1-register-push</value>
+		</field>
 		<field var="type">
 			<value>fcm</value>
 		</field>
 		<field var="node">
-			<value>static_device_id_like_ANDROID_ID</value>
+			<value>static device id like ANDROID_ID OR some stable iOS id</value>
 		</field>
 		<field var="token">
-			<value>dynamic_token_obtained_from_FirebaseInstanceId_InstanceId</value>
+			<value>dynamic token obtained from FirebaseInstanceId_InstanceId OR apns token</value>
 		</field>
 		</x>
 	</command>
 </iq>
 
 <iq to="user@example.com/res1" from="push.example.org" type="result" id="MyID-6465">
-	<command xmlns="http://jabber.org/protocol/commands" status="completed" node="v1-register-push" sessionid="1559985918910">
+	<command xmlns="http://jabber.org/protocol/commands" status="complete" node="v1-register-push" sessionid="1559985918910">
 		<x xmlns="jabber:x:data" type="form">
 			<field type="jid-single" var="jid">
 				<value>push.example.org</value>
 			</field>
 			<field type="text-single" var="node">
-				<value>echoed_back_static_device_id_like_ANDROID_ID</value>
+				<value>echoed back static device id</value>
 			</field>
 			<field type="text-single" var="secret">
-				<value>some_arbitrary_hash_like_value</value>
+				<value>some arbitrary hash-like value</value>
 			</field>
 		</x>
 	</command>
