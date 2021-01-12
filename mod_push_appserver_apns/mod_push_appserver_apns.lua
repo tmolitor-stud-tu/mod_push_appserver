@@ -50,6 +50,7 @@ assert(topic ~= nil, "You need to set 'push_appserver_apns_topic'")
 
 -- global state
 local connection_promise = nil;
+local cleanup_controller = nil
 local certstring = "";
 local keystring  = "";
 
@@ -71,6 +72,25 @@ local function unregister_token(token)
 		module:fire_event("unregister-push-token", {token = tostring(token), type = "apns"})
 	end);
 end
+local function close_connection()
+	-- reset promise to start a new connection
+	local p = connection_promise;
+	connection_promise = nil;
+	
+	-- ignore errors in here
+	if p then
+		local ok, errobj = pcall(function()
+			local stream, err, errno, ok;
+			-- this waits for the resolution of the OLD promise and either returns the connection object or throws an error
+			-- (which will be caught by the wrapping pcall)
+			local connection = p:get();
+			
+			-- close OLD connection
+			connection.goaway_handler = nil;
+			connection:close();
+		end);
+	end
+end
 
 -- handlers
 local function apns_handler(event)
@@ -88,8 +108,7 @@ local function apns_handler(event)
 	end
 	
 	local function retry()
-		-- reset promise to restart connection
-		connection_promise = nil;
+		close_connection();
 		module:add_timer(1, function()
 			module:fire_event("incoming-push-to-apns", event);
 		end);
@@ -126,6 +145,18 @@ local function apns_handler(event)
 				module:log("error", "APNS connect error %s: %s", tostring(errno), tostring(err));
 				connection_promise:set(false, {error = err, errno = errno});
 			else
+				-- close connection on GOAWAY frame
+				module:log("info", "connection established, waiting for GOAWAY frame in extra cqueue function...");
+				connection.goaway_handler = cq:wrap(function()
+					while connection.goaway_handler do
+						if connection.recv_goaway:wait() then
+							module:log("info", "received GOAWAY frame, closing connection...");
+							connection.goaway_handler = nil;
+							connection:close();
+							return;
+						end
+					end
+				end);
 				connection_promise:set(true, connection);
 			end
 		end
@@ -134,7 +165,7 @@ local function apns_handler(event)
 		local ok, errobj = pcall(function()
 			local stream, err, errno, ok;
 			-- this waits for the resolution of the promise and either returns the connection object or throws an error
-			-- (whicht will be caught by the wrapping pcall)
+			-- (which will be caught by the wrapping pcall)
 			local connection = connection_promise:get();
 			
 			if connection.recv_goaway_lowest then		-- check for goaway (is there any api method for this??)
@@ -149,9 +180,10 @@ local function apns_handler(event)
 				module:log("error", "retrying: APNS new_stream error %s: %s", tostring(errno), tostring(err));
 				return retry();
 			end
+			module:log("debug", "New http/2 stream id: %s", stream.id);
 			
 			-- write request
-			module:log("debug", "Writing http/2 request...");
+			module:log("debug", "Writing http/2 request on stream %s...", stream.id);
 			local req_headers = new_headers();
 			req_headers:upsert(":method", "POST");
 			req_headers:upsert(":scheme", "https");
@@ -179,36 +211,39 @@ local function apns_handler(event)
 			ok, err, errno = stream:write_headers(req_headers, false, 2);
 			if not ok then
 				stream:shutdown();
-				module:log("error", "retrying: APNS write_headers error %s: %s", tostring(errno), tostring(err));
+				module:log("error", "retrying stream %s: APNS write_headers error %s: %s", stream.id, tostring(errno), tostring(err));
 				return retry();
 			end
 			module:log("debug", "payload: %s", payload);
 			ok, err, errno = stream:write_body_from_string(payload, 2)
 			if not ok then
 				stream:shutdown();
-				module:log("error", "retrying: APNS write_body_from_string error %s: %s", tostring(errno), tostring(err));
+				module:log("error", "retrying stream %s: APNS write_body_from_string error %s: %s", stream.id, tostring(errno), tostring(err));
 				return retry();
 			end
 			
 			-- read response
-			module:log("debug", "Reading http/2 response...");
+			module:log("debug", "Reading http/2 response on stream %s:", stream.id);
 			local headers;
 			-- Skip through 1xx informational headers.
 			-- From RFC 7231 Section 6.2: "A user agent MAY ignore unexpected 1xx responses"
 			repeat
-				headers, err, errno = stream:get_headers(2);
+				module:log("debug", "Reading http/2 headers on stream %s...", stream.id);
+				headers, err, errno = stream:get_headers(1);
 				if headers == nil then
 					stream:shutdown();
-					module:log("error", "retrying: APNS get_headers error %s: %s", tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
+					module:log("error", "retrying stream %s: APNS get_headers error %s: %s", stream.id, tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
 					return retry();
 				end
 			until not non_final_status(headers:get(":status"))
 			
 			-- close stream and check response
-			local body, err, errno = stream:get_body_as_string(2);
+			module:log("debug", "Reading http/2 body on stream %s...", stream.id);
+			local body, err, errno = stream:get_body_as_string(1);
+			module:log("debug", "All done, shutting down http/2 stream %s...", stream.id);
 			stream:shutdown();
 			if body == nil then
-				module:log("error", "retrying: APNS get_body_as_string error %s: %s", tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
+				module:log("error", "retrying stream %s: APNS get_body_as_string error %s: %s", stream.id, tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
 				return retry();
 			end
 			local status = headers:get(":status");
@@ -236,6 +271,8 @@ local function apns_handler(event)
 				return retry();
 			end
 		end);
+		
+		-- handle connection errors (and other backtraces in the push code)
 		if not ok then
 			module:log("error", "Catched APNS (connect) error: %s", appserver_global.pretty.write(errobj));
 			connection_promise = nil;		--retry connection next time
