@@ -38,6 +38,7 @@ local mutable_content = module:get_option_boolean("push_appserver_apns_mutable_c
 local push_ttl = module:get_option_number("push_appserver_apns_push_ttl", os.time() + (4*7*24*3600));	--now + 4 weeks
 local push_priority = module:get_option_string("push_appserver_apns_push_priority", "auto");			--automatically decide push priority
 local sandbox = module:get_option_boolean("push_appserver_apns_sandbox", true);							--use APNS sandbox
+local collapse_pushes = module:get_option_boolean("push_appserver_apns_collapse_pushes", false);		--collapse pushes into one
 local push_host = sandbox and "api.sandbox.push.apple.com" or "api.push.apple.com";
 local push_port = 443;
 if test_environment then push_host = "localhost"; end
@@ -192,21 +193,25 @@ local function apns_handler(event)
 			module:log("debug", "APNS topic: %s (%s)", tostring(topic), tostring(priority == "voip" and topic..".voip" or topic));
 			req_headers:upsert("apns-topic", priority == "voip" and topic..".voip" or topic);
 			req_headers:upsert("apns-expiration", tostring(push_ttl));
+			collapse_id = nil;
 			if priority == "high" then
-				module:log("debug", "high: push_type: alert, priority: 10, collapse-id: xmpp-body-push");
+				if collapse_pushes then collapse_id = "xmpp-body-push"; end
+				module:log("debug", "high: push_type: alert, priority: 10, collapse-id: %s", tostring(collapse_id));
 				req_headers:upsert("apns-push-type", "alert");
 				req_headers:upsert("apns-priority", "10");
-				req_headers:upsert("apns-collapse-id", "xmpp-body-push");
+				if collapse_id then req_headers:upsert("apns-collapse-id", collapse_id); end
 			elseif priority == "voip" then
-				module:log("debug", "voip: push_type: alert, priority: 10, collapse-id: xmpp-voip-push");
+				if collapse_pushes then collapse_id = "xmpp-voip-push"; end
+				module:log("debug", "voip: push_type: alert, priority: 10, collapse-id: %s", tostring(collapse_id));
 				req_headers:upsert("apns-push-type", "alert");
 				req_headers:upsert("apns-priority", "10");
-				req_headers:upsert("apns-collapse-id", "xmpp-voip-push");
+				if collapse_id then req_headers:upsert("apns-collapse-id", collapse_id); end
 			else
-				module:log("debug", "silent: push_type: background, priority: 5, collapse-id: xmpp-nobody-push");
+				if collapse_pushes then collapse_id = "xmpp-nobody-push"; end
+				module:log("debug", "silent: push_type: background, priority: 5, collapse-id: %s", tostring(collapse_id));
 				req_headers:upsert("apns-push-type", "background");
 				req_headers:upsert("apns-priority", "5");
-				req_headers:upsert("apns-collapse-id", "xmpp-nonbody-push");
+				if collapse_id then req_headers:upsert("apns-collapse-id", collapse_id); end
 			end
 			ok, err, errno = stream:write_headers(req_headers, false, 2);
 			if not ok then

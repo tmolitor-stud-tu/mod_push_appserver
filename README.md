@@ -31,6 +31,7 @@ See this configuration example for [APNS][3] if you want to load the needed subm
 Component "push.example.org" "push_appserver_apns"
 	push_appserver_debugging = false
 	push_appserver_apns_sandbox = false
+	push_appserver_apns_collapse_pushes = false
 	push_appserver_apns_push_priority = "auto"
 	push_appserver_apns_mutable_content = true
 	push_appserver_apns_cert = "/etc/prosody/apns_normal.crt"
@@ -40,6 +41,7 @@ Component "push.example.org" "push_appserver_apns"
 Component "voip-push.example.org" "push_appserver_apns"
 	push_appserver_debugging = false
 	push_appserver_apns_sandbox = false
+	push_appserver_apns_collapse_pushes = false
 	push_appserver_apns_push_priority = "voip"
 	push_appserver_apns_cert = "/etc/prosody/apns_voip.crt"
 	push_appserver_apns_key = "/etc/prosody/apns_voip.key"
@@ -56,6 +58,7 @@ Component "push.example.org" "push_appserver"
 	push_appserver_debugging = false
 	push_appserver_fcm_key = "someFCMkey"
 	push_appserver_apns_sandbox = false
+	push_appserver_apns_collapse_pushes = false
 	push_appserver_apns_push_priority = "voip"
 	push_appserver_apns_cert = "/etc/prosody/apns_voip1.crt"
 	push_appserver_apns_key = "/etc/prosody/apns_voip1.key"
@@ -111,9 +114,14 @@ should be used for chat apps.
 - **push\_appserver\_apns\_ciphers** *(string)*  
   Ciphers to use when establishing a tls connection. Default:
   `ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256`
-- **push\_appserver\_apns\_sandbox** *(boolean)*
+- **push\_appserver\_apns\_sandbox** *(boolean)*  
   Use apns sandbox api endpoint if `true`, production endpoint otherwise.
   Default: `true`.
+- **push\_appserver\_apns\_collapse\_pushes** *(boolean)*  
+  Instruct Apple to collapse queued pushes into one single push (`true`), or keep them separated (`false`).  
+  Setting this to false allows to get more background time for your app when sending multiple pushes in a row
+  (this can be subject to implementation changes by Apple, though).
+  Default: `false`.
 - **push\_appserver\_apns\_mutable\_content** *(boolean)*  
   Mark high prio pushes as mutable content (only has a meaningful effect if `push_appserver_apns_push_priority` is set to
   `"high"` or `"auto"`). Default: `true`.
