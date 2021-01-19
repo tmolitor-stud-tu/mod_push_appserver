@@ -193,7 +193,7 @@ local function apns_handler(event)
 			module:log("debug", "APNS topic: %s (%s)", tostring(topic), tostring(priority == "voip" and topic..".voip" or topic));
 			req_headers:upsert("apns-topic", priority == "voip" and topic..".voip" or topic);
 			req_headers:upsert("apns-expiration", tostring(push_ttl));
-			collapse_id = nil;
+			local collapse_id = nil;
 			if priority == "high" then
 				if collapse_pushes then collapse_id = "xmpp-body-push"; end
 				module:log("debug", "high: push_type: alert, priority: 10, collapse-id: %s", tostring(collapse_id));
