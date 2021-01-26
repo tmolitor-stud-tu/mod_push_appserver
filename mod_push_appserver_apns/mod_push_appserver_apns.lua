@@ -178,7 +178,7 @@ local function apns_handler(event)
 			module:log("debug", "Creating new http/2 stream...");
 			stream, err, errno = connection:new_stream();
 			if stream == nil then
-				module:log("error", "retrying: APNS new_stream error %s: %s", tostring(errno), tostring(err));
+				module:log("warn", "retrying: APNS new_stream error %s: %s", tostring(errno), tostring(err));
 				return retry();
 			end
 			module:log("debug", "New http/2 stream id: %s", stream.id);
@@ -216,14 +216,14 @@ local function apns_handler(event)
 			ok, err, errno = stream:write_headers(req_headers, false, 2);
 			if not ok then
 				stream:shutdown();
-				module:log("error", "retrying stream %s: APNS write_headers error %s: %s", stream.id, tostring(errno), tostring(err));
+				module:log("warn", "retrying stream %s: APNS write_headers error %s: %s", stream.id, tostring(errno), tostring(err));
 				return retry();
 			end
 			module:log("debug", "payload: %s", payload);
 			ok, err, errno = stream:write_body_from_string(payload, 2)
 			if not ok then
 				stream:shutdown();
-				module:log("error", "retrying stream %s: APNS write_body_from_string error %s: %s", stream.id, tostring(errno), tostring(err));
+				module:log("warn", "retrying stream %s: APNS write_body_from_string error %s: %s", stream.id, tostring(errno), tostring(err));
 				return retry();
 			end
 			
@@ -237,7 +237,7 @@ local function apns_handler(event)
 				headers, err, errno = stream:get_headers(1);
 				if headers == nil then
 					stream:shutdown();
-					module:log("error", "retrying stream %s: APNS get_headers error %s: %s", stream.id, tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
+					module:log("warn", "retrying stream %s: APNS get_headers error %s: %s", stream.id, tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
 					return retry();
 				end
 			until not non_final_status(headers:get(":status"))
@@ -248,7 +248,7 @@ local function apns_handler(event)
 			module:log("debug", "All done, shutting down http/2 stream %s...", stream.id);
 			stream:shutdown();
 			if body == nil then
-				module:log("error", "retrying stream %s: APNS get_body_as_string error %s: %s", stream.id, tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
+				module:log("warn", "retrying stream %s: APNS get_body_as_string error %s: %s", stream.id, tostring(errno or ce.EPIPE), tostring(err or ce.strerror(ce.EPIPE)));
 				return retry();
 			end
 			local status = headers:get(":status");
