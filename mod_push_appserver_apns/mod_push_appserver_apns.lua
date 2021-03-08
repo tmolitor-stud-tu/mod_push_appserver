@@ -135,13 +135,15 @@ local function apns_handler(event)
 			ctx:setPrivateKey(pkey.new(keystring));
 			
 			-- create new connection and log possible errors
+			module:log("debug", "TLS configured, now calling http_client.connect('%s:%s')...", push_host, tostring(push_port));
 			local connection, err, errno = http_client.connect({
 				host = push_host;
 				port = push_port;
 				tls = true;
 				version = 2;
 				ctx = ctx;
-			});
+			}, 8);
+			module:log("debug", "http_client.connect() returned %s", tostring(connection));
 			if connection == nil then
 				module:log("error", "APNS connect error %s: %s", tostring(errno), tostring(err));
 				connection_promise:set(false, {error = err, errno = errno});
@@ -149,8 +151,8 @@ local function apns_handler(event)
 				-- close connection on GOAWAY frame
 				module:log("info", "connection established, waiting for GOAWAY frame in extra cqueue function...");
 				connection.goaway_handler = cq:wrap(function()
-					while connection.goaway_handler do
-						if connection.recv_goaway:wait() then
+					while connection and connection.goaway_handler do
+						if connection.recv_goaway:wait(60.0) then		-- make sure we are frequently checking connection.goaway_handler
 							module:log("info", "received GOAWAY frame, closing connection...");
 							connection.goaway_handler = nil;
 							connection:close();
