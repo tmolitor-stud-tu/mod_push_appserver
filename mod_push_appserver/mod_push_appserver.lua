@@ -109,7 +109,7 @@ else
 		local store = module:open_store();
 		local api = {};
 		function api:get(node)
-			settings, err = store:get(node);
+			local settings, err = store:get(node);
 			if not settings and err then
 				module:log("error", "Error reading push notification storage for node '%s': %s", node, tostring(err));
 				return nil, false;
@@ -131,9 +131,8 @@ else
 		end
 		function api:token2node(token)
 			for node in store:users() do
-				local err;
 				-- read data directly, we don't want to cache full copies of stale entries as api:get() would do
-				settings, err = store:get(node);
+				local settings, err = store:get(node);
 				if not settings and err then
 					module:log("error", "Error reading push notification storage for node '%s': %s", node, tostring(err));
 					settings = {};
