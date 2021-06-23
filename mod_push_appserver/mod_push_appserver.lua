@@ -196,8 +196,9 @@ local function register_node(arguments)
 end
 
 -- hooks
-local function sendError(origin, stanza)
-	origin.send(st.error_reply(stanza, "cancel", "item-not-found", "Unknown push node/secret"));
+local function sendError(origin, stanza, text)
+	module:log("info", "Replying with {cancel, item-not-found} error: "..tostring(text));
+	origin.send(st.error_reply(stanza, "cancel", "item-not-found", text));
 	return true;
 end
 
@@ -285,21 +286,21 @@ module:hook("iq/host", function(event)
 	local summary, errors;
 	if summaryNode then
 		summary, errors = summary_form:data(summaryNode);
-		if errors then return sendError(origin, stanza); end
+		if errors then return sendError(origin, stanza, "Error decoding push summary node"); end
 	end
 	
 	-- push options and the secret therein are mandatory
 	local optionsNode = stanza:find("{"..xmlns_pubsub.."}/publish-options/{jabber:x:data}");
-	if not optionsNode then return sendError(origin, stanza); end
+	if not optionsNode then return sendError(origin, stanza, "Error extracting options node"); end
 	local data, errors = options_form:data(optionsNode);
-	if errors then return sendError(origin, stanza); end
+	if errors then return sendError(origin, stanza, "Error decoding options node"); end
 	
 	local node = publishNode.attr.node;
 	local secret = data["secret"];
-	if not node or not secret then return sendError(origin, stanza); end
+	if not node or not secret then return sendError(origin, stanza, "Node and/or secret missing"); end
 	
 	local settings = push_store:get(node);
-	if not settings or secret ~= settings["secret"] then return sendError(origin, stanza); end
+	if not settings or secret ~= settings["secret"] then return sendError(origin, stanza, "Unknown node or secret"); end
 	
 	-- throttling
 	local push_priority = (summary and summary["last-message-body"] ~= nil) and "high" or "silent"
@@ -350,7 +351,7 @@ module:hook("unregister-push-token", function(event)
 	if node then
 		local settings = push_store:get(node);
 		local register_timestamp = datetime.parse(settings["renewed"] or settings["registered"]);
-		if timestamp > register_timestamp then
+		if not timestamp or not register_timestamp or timestamp > register_timestamp then
 			return unregister_push_node(node, type);
 		else
 			module:log("warn", "Unregister via token failed: node '%s' was re-registered after delete timestamp %s", node, datetime.datetime(timestamp));
