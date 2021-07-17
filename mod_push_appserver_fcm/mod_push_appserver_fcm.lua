@@ -62,12 +62,16 @@ local function send_request(data, callback)
 end
 
 -- handlers
+local function fcm_push_priority_handler(event)
+	return (push_priority=="high" and "high" or "normal");
+end
+
 local function fcm_handler(event)
-	local settings, summary, async_callback = event.settings, event.summary, event.async_callback;
+	local settings, async_callback = event.settings, event.async_callback;
 	local data = {
 		["to"] = tostring(settings["token"]),
 		["collapse_key"] = "mod_push_appserver_fcm.collapse",
-		["priority"] = (push_priority=="high" and "high" or "normal"),
+		["priority"] = fcm_push_priority_handler(event),
 		["data"] = {},
 	};
 	if push_ttl and push_ttl > 0 then data["time_to_live"] = push_ttl; end		-- ttl is optional (google's default: 4 weeks)
@@ -133,10 +137,12 @@ end
 
 -- setup
 module:hook("incoming-push-to-fcm", fcm_handler);
+module:hook("determine-fcm-priority", fcm_push_priority_handler);
 module:log("info", "Appserver FCM submodule loaded");
 function module.unload()
 	if module.unhook then
 		module:unhook("incoming-push-to-fcm", fcm_handler);
+		module:unhook("determine-fcm-priority", fcm_push_priority_handler);
 	end
 	module:log("info", "Appserver FCM submodule unloaded");
 end

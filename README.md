@@ -92,7 +92,11 @@ should be used for chat apps.
   This setting will also make http forms available at all `POST` HTTP endpoints
   for easier manual testing of your setup by simply using your browser of choice.
 - **push\_appserver\_rate\_limit** *(number)*  
-  Allow this much requests per second. Default: `5`.  
+  Allow only one request everey N seconds. Default: `5`.  
+  The throttle will always space out incoming requests by this timeframe and make sure
+  that the last request of a burst will always be handled at the beginning of the next
+  timeframe (the first request of a burst will be handled immediately, all other requests
+  in between the first and the last one will be ignored completely).  
   This should mitigate some DOS attacks.
 - **push\_appserver\_local\_cache** *(boolean)*  
   Set this to `false` to deactivate local caching of device tokens and node settings.  

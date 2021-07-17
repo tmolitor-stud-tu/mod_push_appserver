@@ -28,15 +28,15 @@ if have_id then
 end
 local t = require "util.throttle"
 local string = string;
+local zthrottle = module:require "zthrottle";
 
 -- configuration
 local body_size_limit = 4096; -- 4 KB
 local use_local_cache = module:get_option_boolean("push_appserver_local_cache", true);	-- use cache (should be false on HA setups with multiple servers using a replicated sql database)
 local debugging = module:get_option_boolean("push_appserver_debugging", false);			-- debugging (should be false on production servers)
-local rate_limit = module:get_option_number("push_appserver_rate_limit", 5);			-- allow only five pushes per second (try to mitigate DOS attacks)
-
--- global state
-local throttles = {}
+-- space out pushes with an interval of 5 seconds ignoring all but the first and last push in this interval (moving the last push to the end of the interval)
+-- (try to prevent denial of service attacks and save battery on mobile devices)
+zthrottle:set_distance(module:get_option_number("push_appserver_rate_limit", 5));
 
 --- sanity
 local parser_body_limit = module:context("*"):get_option_number("http_max_content_size", 10*1024*1024);
@@ -143,14 +143,6 @@ else
 		end
 		return api;
 	end)();
-end
-
--- throttling (try to prevent denial of service attacks)
-local function create_throttle(node)
-	if not throttles[node] then
-		throttles[node] = t.create(rate_limit, 1);
-	end
-	return throttles[node];
 end
 
 -- html helper
@@ -302,19 +294,10 @@ module:hook("iq/host", function(event)
 	local settings = push_store:get(node);
 	if not settings or secret ~= settings["secret"] then return sendError(origin, stanza, "Unknown node or secret"); end
 	
-	-- throttling
-	local push_priority = (summary and summary["last-message-body"] ~= nil) and "high" or "silent"
-	local throttle = create_throttle(push_priority.."@"..settings["node"]);
-	if not throttle:poll(1) then
-		module:log("warn", "Rate limit for node '%s' reached, ignoring push request (and returning 'wait' error)", settings["node"]);
-		origin.send(st.error_reply(stanza, "wait", "resource-constraint", "Ratelimit reached"));
-		return true;
-	end
-	
 	-- callback to handle synchronous and asynchronous iq responses
 	local async_callback = function(success)
 		if success or success == nil then
-			module:log("warn", "Push handler for type '%s' not executed successfully%s", settings["type"], type(success) == "string" and ": "..success or ": handler not found");
+			module:log("error", "Push handler for type '%s' not executed successfully%s", settings["type"], type(success) == "string" and ": "..success or ": handler not found");
 			origin.send(st.error_reply(stanza, "wait", "internal-server-error", type(success) == "string" and success or "Internal error in push handler"));
 			settings["last_push_error"] = datetime.datetime();
 		else
@@ -324,10 +307,21 @@ module:hook("iq/host", function(event)
 		push_store:set(node, settings);
 	end
 	
-	module:log("info", "Firing event '%s' (node = '%s', secret = '%s')", "incoming-push-to-"..settings["type"], settings["node"], settings["secret"]);
-	local success = module:fire_event("incoming-push-to-"..settings["type"], {async_callback = async_callback, origin = origin, settings = settings, summary = summary, stanza = stanza});
-	-- true indicates handling via async_callback, everything else is synchronous and must be handled directly
-	if not (type(success) == "boolean" and success) then async_callback(success); end
+	-- throttling
+	local event = {async_callback = async_callback, origin = origin, settings = settings, summary = summary, stanza = stanza};
+	local handler_push_priority = tostring(module:fire_event("determine-"..settings["type"].."-priority", event));
+	local zthrottle_id = handler_push_priority.."@"..settings["node"];
+	local ztrottle_retval = zthrottle:incoming(zthrottle_id, function()
+		module:log("info", "Firing event '%s' (node = '%s', secret = '%s')", "incoming-push-to-"..settings["type"], settings["node"], settings["secret"]);
+		local success = module:fire_event("incoming-push-to-"..settings["type"], event);
+		-- true indicates handling via async_callback, everything else is synchronous and must be handled directly
+		if not (type(success) == "boolean" and success) then async_callback(success); end
+	end);
+	if ztrottle_retval == "ignored" then
+		module:log("info", "Rate limit for node '%s' reached, ignoring push request (and returning 'wait' error)", settings["node"]);
+		origin.send(st.error_reply(stanza, "wait", "resource-constraint", "Ratelimit reached"));
+		return true;
+	end
 	return true;
 end);
 
@@ -436,13 +430,6 @@ local function serve_push_v1(event, path)
 		return "ERROR\nNode or secret not found!";
 	end
 	
-	-- throttling
-	local throttle = create_throttle(node);
-	if not throttle:poll(1) then
-		module:log("warn", "Rate limit for node '%s' reached, ignoring push request (and returning error 'Ratelimit reached')", node);
-		return "ERROR\nRatelimit reached!";
-	end
-	
 	local async_callback = function(success)
 		if success or success == nil then
 			module:log("warn", "Push handler for type '%s' not executed successfully%s", settings["type"], type(success) == "string" and ": "..success or ": handler not found");
@@ -454,10 +441,21 @@ local function serve_push_v1(event, path)
 		end
 		push_store:set(node, settings);
 	end
-	module:log("info", "Firing event '%s' (node = '%s', secret = '%s')", "incoming-push-to-"..settings["type"], settings["node"], settings["secret"]);
-	local success = module:fire_event("incoming-push-to-"..settings["type"], {async_callback = async_callback, settings = settings});
-	-- true indicates handling via async_callback, everything else is synchronous and must be handled directly
-	if not (type(success) == "boolean" and success) then async_callback(success); end
+	
+	-- throttling
+	local event = {async_callback = async_callback, settings = settings};
+	local handler_push_priority = tostring(module:fire_event("determine-"..settings["type"].."-priority", event));
+	local zthrottle_id = handler_push_priority.."@"..node;
+	local ztrottle_retval = zthrottle:incoming(zthrottle_id, function()
+		module:log("info", "Firing event '%s' (node = '%s', secret = '%s')", "incoming-push-to-"..settings["type"], node, settings["secret"]);
+		local success = module:fire_event("incoming-push-to-"..settings["type"], event);
+		-- true indicates handling via async_callback, everything else is synchronous and must be handled directly
+		if not (type(success) == "boolean" and success) then async_callback(success); end
+	end);
+	if ztrottle_retval == "ignored" then
+		module:log("warn", "Rate limit for node '%s' reached, ignoring push request (and returning error 'Ratelimit reached')", node);
+		return "ERROR\nRatelimit reached!";
+	end
 	
 	return true;		-- keep connection open until async_callback is called
 end

@@ -94,14 +94,20 @@ local function close_connection()
 end
 
 -- handlers
-local function apns_handler(event)
-	local settings, summary, async_callback = event.settings, event.summary, event.async_callback;
-	-- prepare data to send (using latest binary format, not the legacy binary format or the new http/2 format)
-	local payload;
+local function apns_push_priority_handler(event)
+	-- determine real push priorit to use when sending to apns
 	local priority = push_priority;
 	if push_priority == "auto" then
-		priority = (summary and summary["last-message-body"] ~= nil) and "high" or "silent";
+		priority = (event.summary and event.summary["last-message-body"] ~= nil) and "high" or "silent";
 	end
+	return priority;
+end
+
+local function apns_handler(event)
+	local settings, async_callback = event.settings, event.async_callback;
+	-- prepare data to send (using latest binary format, not the legacy binary format or the new http/2 format)
+	local payload;
+	local priority = apns_push_priority_handler(event);
 	if priority == "high" then
 		payload = '{"aps":{'..(mutable_content and '"mutable-content":"1",' or '')..'"alert":{"title":"New Message", "body":"New Message"}, "sound":"default"}}';
 	else
@@ -294,10 +300,12 @@ end
 certstring = readAll(apns_cert);
 keystring = readAll(apns_key);
 module:hook("incoming-push-to-apns", apns_handler);
+module:hook("determine-apns-priority", apns_push_priority_handler);
 module:log("info", "Appserver APNS submodule loaded");
 function module.unload()
 	if module.unhook then
 		module:unhook("incoming-push-to-apns", apns_handler);
+		module:unhook("determine-apns-priority", apns_push_priority_handler);
 	end
 	module:log("info", "Appserver APNS submodule unloaded");
 end
