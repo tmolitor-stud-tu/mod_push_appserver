@@ -214,8 +214,6 @@ local register_result_form = dataform {
 local function registerPush(stanza, origin)
 	local commandNode = stanza:find("{http://jabber.org/protocol/commands}command");
 	if not commandNode then return; end
-	local dataNode = commandNode:find("{jabber:x:data}");
-	if not dataNode then return; end
 	
 	-- extract command (only executing v1-register-push is supported)
 	local command = commandNode.attr.node;
@@ -223,6 +221,8 @@ local function registerPush(stanza, origin)
 	if command ~= "v1-register-push" or action ~= "execute" then return; end
 	
 	-- extract data
+	local dataNode = commandNode:find("{jabber:x:data}");
+	if not dataNode then return; end
 	local data, errors = register_form:data(dataNode);
 	if errors then return sendCommandError(origin, stanza); end
 	if not data["type"] or not data["node"] or not data["token"] then
@@ -247,6 +247,67 @@ local function registerPush(stanza, origin)
 	return true;
 end
 
+local unregister_form = dataform {
+	{ name = "type"; type = "hidden"; required = true; };
+	{ name = "node"; type = "hidden"; required = true; };
+};
+
+local unregister_result_form = dataform {
+	{ name = "jid"; type = "jid-single"; };
+	{ name = "node"; type = "text-single"; };
+};
+
+local function unregisterPush(stanza, origin)
+	local commandNode = stanza:find("{http://jabber.org/protocol/commands}command");
+	if not commandNode then return; end
+	
+	-- extract command (only executing v1-unregister-push is supported)
+	local command = commandNode.attr.node;
+	local action = commandNode.attr.action;
+	if command ~= "v1-unregister-push" or action ~= "execute" then return; end
+	
+	-- extract data
+	local dataNode = commandNode:find("{jabber:x:data}");
+	if not dataNode then return; end
+	local data, errors = unregister_form:data(dataNode);
+	if errors then return sendCommandError(origin, stanza); end
+	if not data["type"] or not data["node"] or not data["token"] then
+		sendCommandError(origin, stanza);
+	end
+	
+	-- register node
+	local retval = unregister_push_node(data["node"], data["type"]);
+	if not retval then return sendCommandError(origin, stanza); end
+	
+	-- send command reply with sessionid set to uuid()
+	local reply = st.reply(stanza);
+	local form_data = { jid = module:get_host(); node = data["node"] };
+	reply:tag("command", {
+		sessionid = uuid();
+		node = "v1-unregister-push";
+		status = "complete";
+		xmlns = "http://jabber.org/protocol/commands";
+	}):add_child(unregister_result_form:form(form_data));
+	origin.send(reply);
+	
+	return true;
+end
+
+local function handleCommand(stanza, origin)
+	local commandNode = stanza:find("{http://jabber.org/protocol/commands}command");
+	if not commandNode then return; end
+	local dataNode = commandNode:find("{jabber:x:data}");
+	if not dataNode then return; end
+	
+	-- extract command (only executing v1-register-push and v1-unregister-push is supported)
+	local command = commandNode.attr.node;
+	local action = commandNode.attr.action;
+	if action ~= "execute" then return; end
+	if command ~= "v1-register-push" then return registerPush(stanza, origin); end;
+	if command ~= "v1-unregister-push" then return registerPush(stanza, origin); end;
+	return;
+end
+
 local summary_form = dataform {
 	{ name = "FORM_TYPE"; type = "hidden"; value = "urn:xmpp:push:summary"; };
 	{ name = "message-count"; type = "text-single"; };
@@ -263,9 +324,9 @@ local options_form = dataform {
 module:hook("iq/host", function(event)
 	local stanza, origin = event.stanza, event.origin;
 	
-	-- handle register command
+	-- handle register/unregister commands
 	if stanza:find("{http://jabber.org/protocol/commands}command") then
-		return registerPush(stanza, origin);
+		return handleCommand(stanza, origin);
 	end
 	
 	-- handle push:

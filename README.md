@@ -181,17 +181,17 @@ but with some small differences:
 - the device id field is called "node" instead of "device-id"
 - the new field "type" was added. This can be used to specify the push
   type just as it is done using the http based API.
-- You can only register the device using this API, no unregister possible (use the HTTP API for unregistering devices)
+- unregistering a device is not done at all in Conversations, but this appserver supports it via the v1-unregister-push command
 
 [This Gist][5] demonstrates the changes needed to Conversations to use this appserver
 instead of inputmice's p2.
 See [XEP-0050][6] for more info regarding Ad-Hoc Commands in general.
 
-**Keep in mind that the registration command sent to this appserver is routed through the user's xmpp server.**
+**Keep in mind that the registration/unregistration commands sent to this appserver are routed through the user's xmpp server.**
 **This exposes the raw APNS/FCM push token and device id to the user's xmpp server.**
-**Use the HTTP API if you don't like this.**
+**Use the HTTP API if you don't like this (HTTP will expose the user's IP, though).**
 
-Example XMPP flow for registering a device:  
+#### Example XMPP flow for registering a device:  
 ```
 <iq to="push.example.org" id="MyID-6465" type="set">
 	<command xmlns="http://jabber.org/protocol/commands" node="v1-register-push" action="execute">
@@ -231,6 +231,38 @@ Example XMPP flow for registering a device:
 
 The two values `node` and `secret` are needed for registering push on the XMPP server afterwards,
 see [example 9 in XEP-0357, section 5][7].
+
+#### Example XMPP flow for UNregistering a device:  
+```
+<iq to="push.example.org" id="MyID-6446" type="set">
+	<command xmlns="http://jabber.org/protocol/commands" node="v1-unregister-push" action="execute">
+		<x xmlns="jabber:x:data" type="submit">
+		<field type='hidden' var='FORM_TYPE'>
+			<value>https://github.com/tmolitor-stud-tu/mod_push_appserver/#v1-unregister-push</value>
+		</field>
+		<field var="type">
+			<value>fcm</value>
+		</field>
+		<field var="node">
+			<value>static device id like ANDROID_ID OR some stable iOS id</value>
+		</field>
+		</x>
+	</command>
+</iq>
+
+<iq to="user@example.com/res1" from="push.example.org" type="result" id="MyID-6446">
+	<command xmlns="http://jabber.org/protocol/commands" status="complete" node="v1-unregister-push" sessionid="1559985918910">
+		<x xmlns="jabber:x:data" type="form">
+			<field type="jid-single" var="jid">
+				<value>push.example.org</value>
+			</field>
+			<field type="text-single" var="node">
+				<value>echoed back static device id</value>
+			</field>
+		</x>
+	</command>
+</iq>
+```
 
 ### HTTP API
 
