@@ -390,7 +390,6 @@ local function unregister_push_node(node, type)
 	local settings = push_store:get(node);
 	if settings["type"] == type then
 		push_store:set(node, nil);
-		throttles[node] = nil;
 		module:log("info", "Unregistered push device, returning: 'OK', '%s', '%s'", tostring(node), tostring(settings["secret"]));
 		module:log("debug", "settings were: %s", appserver_global.pretty.write(settings));
 		return "OK\n"..node.."\n"..settings["secret"];
