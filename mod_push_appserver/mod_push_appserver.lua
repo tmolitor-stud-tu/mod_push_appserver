@@ -32,8 +32,9 @@ local zthrottle = module:require "zthrottle";
 
 -- configuration
 local body_size_limit = 4096; -- 4 KB
-local use_local_cache = module:get_option_boolean("push_appserver_local_cache", true);	-- use cache (should be false on HA setups with multiple servers using a replicated sql database)
-local debugging = module:get_option_boolean("push_appserver_debugging", false);			-- debugging (should be false on production servers)
+local store_module_name = module:get_option_string("push_appserver_store_plugin", "cached");	-- store plugin to use
+local store_params = module:get_option("push_appserver_store_params", nil);						-- store params
+local debugging = module:get_option_boolean("push_appserver_debugging", false);					-- debugging (should be false on production servers)
 -- space out pushes with an interval of 5 seconds ignoring all but the first and last push in this interval (moving the last push to the end of the interval)
 -- (try to prevent denial of service attacks and save battery on mobile devices)
 zthrottle:set_distance(module:get_option_number("push_appserver_rate_limit", 5));
@@ -49,101 +50,7 @@ end
 local xmlns_pubsub = "http://jabber.org/protocol/pubsub";
 local xmlns_push = "urn:xmpp:push:0";
 
-local push_store;
-if use_local_cache then
-	-- For keeping state across reloads while caching reads
-	push_store = (function()
-		local store = module:open_store();
-		local cache = {};
-		local token2node_cache = {};
-		local api = {};
-		function api:get(node)
-			if not cache[node] then
-				local err;
-				cache[node], err = store:get(node);
-				if not cache[node] and err then
-					module:log("error", "Error reading push notification storage for node '%s': %s", node, tostring(err));
-					cache[node] = {};
-					return cache[node], false;
-				end
-			end
-			if not cache[node] then cache[node] = {} end
-			-- add entry to token2node cache, too
-			if cache[node].token and cache[node].node then token2node_cache[cache[node].token] = cache[node].node; end
-			return cache[node], true;
-		end
-		function api:set(node, data)
-			local settings = api:get(node);		-- load node's data
-			-- fill caches
-			cache[node] = data;
-			if settings.token and settings.node then token2node_cache[settings.token] = settings.node; end
-			local ok, err = store:set(node, cache[node]);
-			if not ok then
-				module:log("error", "Error writing push notification storage for node '%s': %s", node, tostring(err));
-				return false;
-			end
-			return true;
-		end
-		function api:list()
-			return store:users();
-		end
-		function api:token2node(token)
-			if token2node_cache[token] then return token2node_cache[token]; end
-			for node in store:users() do
-				local err;
-				-- read data directly, we don't want to cache full copies of stale entries as api:get() would do
-				settings, err = store:get(node);
-				if not settings and err then
-					module:log("error", "Error reading push notification storage for node '%s': %s", node, tostring(err));
-					settings = {};
-				end
-				if settings.token and settings.node then token2node_cache[settings.token] = settings.node; end
-			end
-			if token2node_cache[token] then return token2node_cache[token]; end
-			return nil;
-		end
-		return api;
-	end)();
-else
-	push_store = (function()
-		local store = module:open_store();
-		local api = {};
-		function api:get(node)
-			local settings, err = store:get(node);
-			if not settings and err then
-				module:log("error", "Error reading push notification storage for node '%s': %s", node, tostring(err));
-				return nil, false;
-			end
-			if not settings then settings = {} end
-			return settings, true;
-		end
-		function api:set(node, data)
-			local settings = api:get(node);		-- load node's data
-			local ok, err = store:set(node, data);
-			if not ok then
-				module:log("error", "Error writing push notification storage for node '%s': %s", node, tostring(err));
-				return false;
-			end
-			return true;
-		end
-		function api:list()
-			return store:users();
-		end
-		function api:token2node(token)
-			for node in store:users() do
-				-- read data directly, we don't want to cache full copies of stale entries as api:get() would do
-				local settings, err = store:get(node);
-				if not settings and err then
-					module:log("error", "Error reading push notification storage for node '%s': %s", node, tostring(err));
-					settings = {};
-				end
-				if settings.token and settings.node and settings.token == token then return settings.node; end
-			end
-			return nil;
-		end
-		return api;
-	end)();
-end
+local push_store = (module:require(store_module_name.."_store"))(store_params);
 
 -- html helper
 local function html_skeleton()

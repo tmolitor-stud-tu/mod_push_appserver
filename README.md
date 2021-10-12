@@ -98,11 +98,16 @@ should be used for chat apps.
   timeframe (the first request of a burst will be handled immediately, all other requests
   in between the first and the last one will be ignored completely).  
   This should mitigate some DOS attacks.
-- **push\_appserver\_local\_cache** *(boolean)*  
-  Set this to `false` to deactivate local caching of device tokens and node settings.  
+- **push\_appserver\_store\_plugin** *(string)*  
+  Set this to the store plugin to use, currently available: `cached`, `uncached`.  
+  Use the `uncached` store to deactivate local caching of device tokens and node settings.  
   This is useful if you are using an SQL storage backend and this backend is
   replicated across several servers in an HA- or loadbalancing-setup.  
-  Default: `true`.
+  Default: `cached`.
+- **push\_appserver\_store\_params** *(table)*  
+  Set this to anything you want to pass to the storage plugin.  
+  The two default implementations `cached`, `uncached` don't take any params.  
+  Default: `nil`.
 
 ### Configuration options (mod\_push\_appserver\_apns)
 
