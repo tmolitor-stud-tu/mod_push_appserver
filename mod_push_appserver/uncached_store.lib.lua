@@ -22,17 +22,5 @@ return function(params)
 	function api:list()
 		return store:users();
 	end
-	function api:token2node(token)
-		for node in store:users() do
-			-- read data directly, we don't want to cache full copies of stale entries as api:get() would do
-			local settings, err = store:get(node);
-			if not settings and err then
-				module:log("error", "Error reading push notification storage for node '%s': %s", node, tostring(err));
-				settings = {};
-			end
-			if settings.token and settings.node and settings.token == token then return settings.node; end
-		end
-		return nil;
-	end
 	return api;
 end;

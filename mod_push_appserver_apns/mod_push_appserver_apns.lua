@@ -65,12 +65,12 @@ local function readAll(file)
     f:close();
     return content;
 end
-local function unregister_token(token)
-	-- add unregister token to prosody event queue
-	module:log("debug", "Adding unregister-push-token to prosody event queue...");
+local function unregister_token(settings)
+	-- add unregister node to prosody event queue
+	module:log("debug", "Adding unregister-push-node to prosody event queue...");
 	module:add_timer(1e-06, function()
-		module:log("warn", "Unregistering failing APNS token %s", tostring(token))
-		module:fire_event("unregister-push-token", {token = tostring(token), type = "apns"})
+		module:log("warn", "Unregistering failing APNS token %s of node %s", tostring(settings["token"]), tostring(settings["node"]))
+		module:fire_event("unregister-push-node", settings)
 	end);
 end
 local function close_connection()
@@ -276,7 +276,7 @@ local function apns_handler(event)
 			(status == "400" and response["reason"] == "DeviceTokenNotForTopic") or
 			(status == "410" and response["reason"] == "Unregistered")
 			then
-				unregister_token(settings["token"]);
+				unregister_token(settings);
 			end
 			
 			-- try again on idle timeout
