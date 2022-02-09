@@ -211,7 +211,7 @@ local function handleCommand(stanza, origin)
 	local action = commandNode.attr.action;
 	if action ~= "execute" then return; end
 	if command ~= "v1-register-push" then return registerPush(stanza, origin); end;
-	if command ~= "v1-unregister-push" then return registerPush(stanza, origin); end;
+	if command ~= "v1-unregister-push" then return unregisterPush(stanza, origin); end;
 	return;
 end
 
